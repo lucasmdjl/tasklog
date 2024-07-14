@@ -21,7 +21,7 @@ use std::path::PathBuf;
 use std::str::FromStr;
 
 use chrono::{Days, Duration, Local, NaiveDate, NaiveTime};
-use clap::{Parser, Subcommand, ArgAction};
+use clap::{Parser, Subcommand};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -72,9 +72,13 @@ enum Command {
     Start {
         /// The name of the task to start.
         #[arg(value_name = "TASK")]
-        task: Option<String>,
-        #[arg(short, long, action = ArgAction::SetTrue, requires = "task")]
-        create: bool
+        task: String
+    },
+    /// Resumes work on the given task. If no task is given, resumes the last task.
+    Resume {
+        /// The name of the task to resume.
+        #[arg(value_name = "TASK")]
+        task: Option<String>
     },
     /// Stops work on the current task.
     Stop {
@@ -86,10 +90,9 @@ enum Command {
         duration: Option<u16>
     },
     /// Switches to a different task.
-    #[command(arg_required_else_help = true)]
     Switch {
         /// The name of the task to switch to.
-        #[arg(value_name = "TASK", required = true)]
+        #[arg(value_name = "TASK")]
         task: String
     },
     /// Prints a report of the tasks worked on in a day.
@@ -154,10 +157,11 @@ pub fn handle(cli: Cli) -> Result<()> {
     let config = Config::load(config)?;
     fs::create_dir_all(PathBuf::from(&config.data_dir))?;
     match cli.command {
-        Command::Start { task, create } => match task {
-            None => resume(&config),
-            Some(task) => if create { start_new(task, &config) } else { start(task, &config) },
-        },
+        Command::Start { task } => start_new(task, &config),
+        Command::Resume { task } => match task {
+            None => resume_last(&config),
+            Some(task) => resume(task, &config),
+        }
         Command::Stop { n, duration } => stop(n.unwrap_or(0), duration, &config),
         Command::Switch { task } => switch(task, &config),
         Command::Report { n } => report(n, &config),
@@ -174,8 +178,8 @@ fn process_mutating_action(days_ago: u16, config: &Config, action: impl FnOnce(&
     Ok(task_name)
 }
 
-/// Starts a task with the given name.
-fn start(task_name: String, config: &Config) -> Result<()> {
+/// Resumes the task with the given name.
+fn resume(task_name: String, config: &Config) -> Result<()> {
     let task_name = process_mutating_action(0, config, |task_manager| 
     task_manager.resume_task(task_name, Local::now()))?;
     println!("Started task: {task_name}");
@@ -203,7 +207,7 @@ fn stop(days_ago: u16, duration: Option<u16>, config: &Config) -> Result<()> {
 }
 
 /// Resumes the last running task.
-fn resume(config: &Config) -> Result<()> {
+fn resume_last(config: &Config) -> Result<()> {
     let task_name = process_mutating_action(0, config, |task_manager| 
     task_manager.resume_last_task(Local::now()))?;
     println!("Resumed task: {task_name}");

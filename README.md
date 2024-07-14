@@ -23,13 +23,12 @@ The executable will be located in the target/release directory.
 
 ## Usage
 
-### Start a Task
+### Start a new Task
 
-To start a new task or resume the last task:
+To start a new task:
 ```sh
 tasklog start <TASK_NAME>
 ```
-If <TASK_NAME> is omitted, the last stopped task will be resumed.
 
 ### Stop a Task
 
@@ -37,6 +36,20 @@ To stop the current task:
 ```sh
 tasklog stop
 ```
+
+If you want to stop a running task from a previous day you can do instead
+```sh
+tasklog stop -n=<DAYS_AGO> -d=<MINUTES>
+```
+specifying for how many minutes the task should have been running.
+
+### Resume a Task
+
+To resume a stopped task:
+```sh
+tasklog resume <TASK_NAME>
+```
+If <TASK_NAME> is omitted, the last stopped task will be resumed.
 
 ### Switch Tasks
 
@@ -53,6 +66,7 @@ To generate a report of tasks worked on today or a specific day:
 tasklog report -n=<DAYS_AGO>
 ```
 `<DAYS_AGO>` is the number of days between today and the day to report. For example, `-n=0` for today, `-n=1` for yesterday, and so on.
+If `n` is not specified, the report will be of today.
 
 ### Get Current Task
 
@@ -81,7 +95,7 @@ tasklog switch meeting
 
 Generate a report for today:
 ```sh
-tasklog report -n=0
+tasklog report
 ```
 
 Generate a report for yesterday:
