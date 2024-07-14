@@ -21,7 +21,7 @@ use std::path::PathBuf;
 use std::str::FromStr;
 
 use chrono::{Days, Duration, Local, NaiveDate, NaiveTime};
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ArgAction};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -98,8 +98,8 @@ enum Command {
     /// Prints a report of the tasks worked on in a day.
     Report {
         /// The number of days between today and the day to report.
-        #[arg(short, default_value_t = 0, require_equals = true, value_name = "DAYS")]
-        n: u16
+        #[arg(short, action = ArgAction::Append, require_equals = true, value_name = "DAYS", default_values = vec!["0"])]
+        n: Vec<u16>
     },
     /// Prints the current task.
     Current,
@@ -233,11 +233,13 @@ fn current(config: &Config) -> Result<()> {
 }
 
 /// Prints a report of the tasks worked on. The report is generated for the given number of days ago.
-fn report(days_ago: u16, config: &Config) -> Result<()> {
-    let date = date(days_ago, config)?;
-    let task_manager = read_tasks(date, config)?;
-    let report = task_manager.generate_report(date, Local::now().time());
-    println!("\n{report}");
+fn report(days_ago: Vec<u16>, config: &Config) -> Result<()> {
+    for days_ago in days_ago {
+        let date = date(days_ago, config)?;
+        let task_manager = read_tasks(date, config)?;
+        let report = task_manager.generate_report(date, Local::now().time());
+        println!("\n{report}");
+    }
     Ok(())
 }
 
