@@ -264,6 +264,7 @@ fn list(config: &Config) -> Result<()> {
     Ok(())
 }
 
+/// Renames the given task.
 fn rename(task_name: String, new_name: String, config: &Config) -> Result<()> {
     let (task_name, new_name) = process_mutating_action(0, config, |task_manager| task_manager.rename_task(task_name, new_name))?;
     println!("Renamed task: {task_name} to {new_name}");
