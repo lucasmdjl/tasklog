@@ -182,7 +182,7 @@ fn process_mutating_action(days_ago: u16, config: &Config, action: impl FnOnce(&
 fn resume(task_name: String, config: &Config) -> Result<()> {
     let task_name = process_mutating_action(0, config, |task_manager| 
     task_manager.resume_task(task_name, Local::now()))?;
-    println!("Started task: {task_name}");
+    println!("Resumed task: {task_name}");
     Ok(())
 }
 
