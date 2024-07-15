@@ -34,8 +34,8 @@ pub mod task_manager;
 pub enum TaskError {
     #[error("Task '{0}' is already running")]
     TaskAlreadyRunning(String),
-    #[error("Task '{0}' is not running")]
-    TaskNotRunning(String),
+    #[error("No task is currently not running")]
+    TaskNotRunning,
     #[error("No tasks found")]
     NoTasksFound,
     #[error("Task '{0}' not found")]

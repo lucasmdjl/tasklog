@@ -80,7 +80,7 @@ impl Task {
     /// Stops the task if it is running. Returns [Err] if the task is not running.
     pub fn stop(&mut self, end: TaskEnd) -> crate::Result<()> {
         let start = match self.current {
-            None => return Err(TaskError::TaskNotRunning(self.name.clone())),
+            None => return Err(TaskError::TaskNotRunning),
             Some(start) => start,
         };
         let end = match end {
