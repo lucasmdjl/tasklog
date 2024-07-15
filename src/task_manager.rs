@@ -62,7 +62,7 @@ impl Task {
     pub fn name(&self) -> &str {
         &self.name
     }
-    
+
     /// Renames the task.
     pub fn rename(&mut self, new_name: impl ToString) {
         self.name = new_name.to_string();
@@ -269,15 +269,20 @@ impl TaskManager {
         }
     }
     
-    /// Returns the index of the task with the given name.
-    fn index_of(&self, task_name: &str) -> Option<usize> {
-        self.tasks.iter().enumerate().find(|(_, task)| task.name == task_name).map(|(i, _)| i)
+    /// Returns the index of the task matching the given predicate if any. If there are multiple, returns an error.
+    fn index_of(&self, f: impl Fn(&Task) -> bool) -> crate::Result<Option<usize>> {
+        let mut rs: Vec<_> = self.tasks.iter().enumerate().filter(|(_, task)| f(&task)).map(|(i, _)| i).collect();
+        if rs.len() >= 2 { 
+            Err(TaskError::MultipleTasksFound)
+        } else {
+            Ok(rs.pop())
+        }
     }
     
     /// Resumes an existing one with the given name.
     pub fn resume_task(&mut self, task_name: String, start: DateTime<Local>) -> crate::Result<String> {
         self.check_no_current_task()?;
-        match self.index_of(&task_name) {
+        match self.index_of(|task| task.name.contains(&task_name))? {
             None => Err(TaskError::TaskNotFound(task_name)),
             Some(index) => {
                 let mut task = self.tasks.swap_remove(index);
@@ -291,7 +296,7 @@ impl TaskManager {
     /// Starts a new task with the given name.
     pub fn start_new_task(&mut self, task_name: String, start: DateTime<Local>) -> crate::Result<String> {
         self.check_no_current_task()?;
-        match self.index_of(&task_name) {
+        match self.index_of(|task| task.name == task_name)? {
             None => {
                 let new_task = Task::new(task_name.clone(), start);
                 self.tasks.push(new_task);
@@ -361,9 +366,13 @@ impl TaskManager {
         report += &format!("    {:<max_length$} | {hours:0>2}:{minutes:0>2} | 100%\n", "Total");
         report
     }
-    
+
     pub fn rename_task(&mut self, task_name: String, new_name: String) -> crate::Result<(String, String)> {
-        let task = self.tasks.iter_mut().find(|task| task.name == task_name);
+        let mut tasks: Vec<_> = self.tasks.iter_mut().filter(|task| task.name.contains(&task_name)).collect();
+        if tasks.len() >= 2 { 
+            return Err(TaskError::MultipleTasksFound)
+        }
+        let task = tasks.pop();
         match task {
             None => Err(TaskError::TaskNotFound(task_name)),
             Some(task) => {

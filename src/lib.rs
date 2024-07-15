@@ -42,6 +42,8 @@ pub enum TaskError {
     TaskNotFound(String),
     #[error("Task '{0}' already exists")]
     TaskAlreadyExists(String),
+    #[error("Task name is ambiguous")]
+    MultipleTasksFound,
     #[error("File IO error: {0}")]
     FileIO(#[from] std::io::Error),
     #[error("Serialization error: {0}")]
