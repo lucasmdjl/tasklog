@@ -320,10 +320,17 @@ impl TaskManager {
         }
     }
 
-    /// Stops the current task and starts a new one.
+    /// Stops the current task and resumes the given one.
     pub fn switch_task(&mut self, task_name: String, now: DateTime<Local>) -> crate::Result<String> {
         self.stop_current_task(TaskEnd::Time(now))?;
         let task = self.resume_task(task_name, now)?;
+        Ok(task)
+    }
+
+    /// Stops the current task and starts a new one.
+    pub fn switch_new_task(&mut self, task_name: String, now: DateTime<Local>) -> crate::Result<String> {
+        self.stop_current_task(TaskEnd::Time(now))?;
+        let task = self.start_new_task(task_name, now)?;
         Ok(task)
     }
 

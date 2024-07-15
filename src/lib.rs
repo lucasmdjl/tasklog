@@ -93,7 +93,9 @@ enum Command {
     Switch {
         /// The name of the task to switch to.
         #[arg(value_name = "TASK")]
-        task: String
+        task: String,
+        #[arg(short, long, action = ArgAction::SetTrue)]
+        create: bool,
     },
     /// Prints a report of the tasks worked on in a day.
     Report {
@@ -163,7 +165,7 @@ pub fn handle(cli: Cli) -> Result<()> {
             Some(task) => resume(task, &config),
         }
         Command::Stop { n, duration } => stop(n.unwrap_or(0), duration, &config),
-        Command::Switch { task } => switch(task, &config),
+        Command::Switch { task, create } => if create { switch_new(task, &config) } else { switch(task, &config) },
         Command::Report { n } => report(n, &config),
         Command::Current => current(&config),
     }
@@ -218,6 +220,13 @@ fn resume_last(config: &Config) -> Result<()> {
 fn switch(task_name: String, config: &Config) -> Result<()> {
     let task_name = process_mutating_action(0, config, |task_manager| task_manager.switch_task(task_name, Local::now()))?;
     println!("Switched to task: {task_name}");
+    Ok(())
+}
+
+/// Switches to a new task.
+fn switch_new(task_name: String, config: &Config) -> Result<()> {
+    let task_name = process_mutating_action(0, config, |task_manager| task_manager.switch_new_task(task_name, Local::now()))?;
+    println!("Switched to new task: {task_name}");
     Ok(())
 }
 
