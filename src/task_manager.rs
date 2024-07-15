@@ -16,21 +16,17 @@
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
-use std::cmp::Ordering;
 use chrono::{DateTime, Duration, Local, NaiveDate, NaiveTime};
 use colored::Colorize;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde::de;
 use crate::TaskError;
 
-/// Task enum representing a running or stopped task.
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
-pub enum Task {
-    Running(RunningTask),
-    Stopped(StoppedTask),
-}
-
 /// Task structure representing a running task.
+///
+/// ### Contract
+/// - segments must be in chronological order.
+/// - current must be after the end of the last of segments.
 #[derive(Debug, Serialize, PartialEq)]
 pub struct RunningTask {
     name: String,
@@ -60,11 +56,17 @@ impl RunningTask {
             last_segment: Segment::new(start, end),
         }
     }
+    
+    /// Calculates the total time spent on the task.
+    pub fn time_spent(&self, now: NaiveTime) -> Duration {
+        self.segments.iter().fold(Duration::zero(), |total, segment| total + segment.duration()) +
+                    (now - self.current.time())
+    }
 }
 
-/// Task structure representing a stopped task.
+/// Helper for deserializing a running task.
 #[derive(Debug, Deserialize)]
-pub struct RunningTaskDeser {
+struct RunningTaskDeser {
     name: String,
     segments: Vec<Segment>,
     current: DateTime<Local>,
@@ -100,6 +102,11 @@ impl TryFrom<RunningTaskDeser> for RunningTask {
     }
 }
 
+/// Task structure representing a stopped task.
+/// 
+/// ### Contract
+/// - segments must be in chronological order.
+/// - last_segment must start after the end of the last of segments.
 #[derive(Debug, Serialize, PartialEq)]
 pub struct StoppedTask {
     name: String,
@@ -120,12 +127,18 @@ impl StoppedTask {
         }
     }
 
-    /// Returns the last stop time of the task, or None if the task is running.
+    /// Returns the last stop time of the task.
     pub fn stop_time(&self) -> DateTime<Local> {
         self.last_segment.end
     }
+
+    /// Calculates the total time spent on the task.
+    pub fn time_spent(&self) -> Duration {
+        self.segments.iter().fold(self.last_segment.duration(), |total, segment| total + segment.duration())
+    }
 }
 
+/// Helper for deserializing a stopped task.
 #[derive(Debug, Deserialize)]
 struct StoppedTaskDeser {
     name: String,
@@ -163,92 +176,6 @@ impl TryFrom<StoppedTaskDeser> for StoppedTask {
     }
 }
 
-impl PartialOrd for Task {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        if self == other {
-            return Some(Ordering::Equal);
-        }
-        if self.name() != other.name() { 
-            return None;
-        }
-        if let Task::Stopped(other) = other {
-            if self.start_time() >= other.stop_time() { 
-                return Some(Ordering::Greater);
-            }
-        }
-        if let Task::Stopped(slef) = self {
-            if other.start_time() >= slef.stop_time() { 
-                return Some(Ordering::Less);
-            }
-        }
-        None
-    }
-}
-impl Task {
-    /// Returns the name of the task.
-    pub fn name(&self) -> &str {
-        match self {
-            Task::Running(task) => &task.name,
-            Task::Stopped(task) => &task.name,
-        }
-    }
-
-    /// Renames the task.
-    pub fn rename(&mut self, new_name: impl ToString) {
-        match self {
-            Task::Running(task) => { task.name = new_name.to_string(); },
-            Task::Stopped(task) => {  task.name = new_name.to_string(); },
-        }
-    }
-    
-    /// Creates a new (running) task with the given name.
-    pub fn new(name: impl ToString, now: DateTime<Local>) -> Self {
-        Task::Running(RunningTask::new(name, now))
-    }
-
-    /// Checks if the task is currently running.
-    pub fn is_running(&self) -> bool {
-        match self {
-            Task::Running(_) => true,
-            Task::Stopped(_) => false,
-        }
-    }
-    
-    /// Starts the task. Returns the started task, or an error if the task is already running.
-    pub fn start(self, now: DateTime<Local>) -> crate::Result<Task> {
-        match self {
-            Task::Running(task) => Err(TaskError::TaskAlreadyRunning(task.name)),
-            Task::Stopped(task) => Ok(Task::Running(task.start(now))),
-        }
-    }
-    
-    /// Stops the task. Returns the stopped task, or an error if the task is not running.
-    pub fn stop(self, end: TaskEnd) -> crate::Result<Task> {
-        match self {
-            Task::Running(task) => Ok(Task::Stopped(task.stop(end))),
-            Task::Stopped(_) => Err(TaskError::TaskNotRunning),
-        }
-    }
-
-    /// Calculates the total time spent on the task.
-    pub fn time_spent(&self, now: NaiveTime) -> Duration {
-        match self {
-            Task::Running(task) => 
-                task.segments.iter().fold(Duration::zero(), |total, segment| total + segment.duration()) +
-                    (now - task.current.time()),
-            Task::Stopped(task) => task.segments.iter().fold(task.last_segment.duration(), |total, segment| total + segment.duration()),
-        }
-    }
-    
-    /// Returns the start time of the task.
-    pub fn start_time(&self) -> DateTime<Local> {
-        match self {
-            Task::Running(task) => task.segments.first().map(|s| s.start).unwrap_or(task.current),
-            Task::Stopped(task) => task.segments.first().map(|s| s.start).unwrap_or(task.last_segment.start),
-        }
-    }
-}
-
 /// Time segment structure representing the start and end times of work done on a task.
 /// 
 /// ### Contract:
@@ -257,19 +184,6 @@ impl Task {
 pub struct Segment {
     start: DateTime<Local>,
     end: DateTime<Local>,
-}
-impl PartialOrd for Segment {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        if self == other {
-            Some(Ordering::Equal)
-        } else if self.start >= other.end {
-            Some(Ordering::Greater)
-        } else if self.end <= other.start {
-            Some(Ordering::Less)
-        } else {
-            None
-        }
-    }
 }
 impl Segment {
     
@@ -319,19 +233,16 @@ impl TryFrom<SegmentDeser> for Segment {
 }
 
 /// List of tasks.
-/// 
-/// ### Contract:
-/// - The last task in the list is the one currently running if there is one,
-/// or the last to have run otherwise.
-#[derive(Debug, Serialize, Default)]
+#[derive(Debug, Serialize, Deserialize, Default)]
 pub struct TaskManager { 
-    tasks: Vec<Task>,
+    tasks: Vec<StoppedTask>,
+    current: Option<RunningTask>,
 }
 impl TaskManager {
 
     /// Returns the currently running task if any.
     pub fn current_task(&self) -> Option<&str> {
-        self.tasks.last().filter(|&task| task.is_running()).map(Task::name)
+        self.current.as_ref().map(|task| task.name.as_str())
     }
     
     /// Checks if there is a current task. Returns [Err] if there is one.
@@ -343,23 +254,24 @@ impl TaskManager {
     }
     
     /// Returns the index of the task matching the given predicate if any. If there are multiple, returns [Err].
-    fn index_of(&self, f: impl Fn(&Task) -> bool) -> crate::Result<Option<usize>> {
-        let mut rs: Vec<_> = self.tasks.iter().enumerate().filter(|(_, task)| f(task)).map(|(i, _)| i).collect();
-        if rs.len() >= 2 { 
+    fn index_of(&self, f: impl Fn(&StoppedTask) -> bool) -> crate::Result<Option<usize>> {
+        let mut indices: Vec<_> = self.tasks.iter().enumerate().filter(|(_, task)| f(task)).map(|(i, _)| i).collect();
+        let index = indices.pop();
+        if !indices.is_empty() {
             Err(TaskError::MultipleTasksFound)
         } else {
-            Ok(rs.pop())
+            Ok(index)
         }
     }
     
     /// Resumes an existing task with the given name.
     pub fn resume_task(&mut self, task_name: String, start: DateTime<Local>) -> crate::Result<String> {
         self.check_no_current_task()?;
-        match self.index_of(|task| task.name().contains(&task_name))? {
+        match self.index_of(|task| task.name.contains(&task_name))? {
             None => Err(TaskError::TaskNotFound(task_name)),
             Some(index) => {
                 let task = self.tasks.swap_remove(index);
-                self.tasks.push(task.start(start)?);
+                self.current = Some(task.start(start));
                 Ok(task_name)
             }
         }
@@ -368,10 +280,10 @@ impl TaskManager {
     /// Starts a new task with the given name.
     pub fn start_new_task(&mut self, task_name: String, start: DateTime<Local>) -> crate::Result<String> {
         self.check_no_current_task()?;
-        match self.index_of(|task| task.name() == task_name)? {
+        match self.index_of(|task| task.name == task_name)? {
             None => {
-                let new_task = Task::new(task_name.clone(), start);
-                self.tasks.push(new_task);
+                let new_task = RunningTask::new(task_name.clone(), start);
+                self.current = Some(new_task);
                 Ok(task_name)
             }
             Some(_) => Err(TaskError::TaskAlreadyExists(task_name))
@@ -380,12 +292,11 @@ impl TaskManager {
 
     /// Stops the current task.
     pub fn stop_current_task(&mut self, end: TaskEnd) -> crate::Result<String> {
-        let task = self.tasks.pop();
-        match task {
-            None => Err(TaskError::NoTasksFound),
+        match self.current.take() {
+            None => Err(TaskError::TaskNotRunning),
             Some(task) => {
-                let name = task.name().to_string();
-                self.tasks.push(task.stop(end)?);
+                let name = task.name.to_string();
+                self.tasks.push(task.stop(end));
                 Ok(name)
             }
         }
@@ -397,8 +308,8 @@ impl TaskManager {
         match task {
             None => Err(TaskError::NoTasksFound),
             Some(task) => {
-                let name = task.name().to_string();
-                self.tasks.push(task.start(start)?);
+                let name = task.name.to_string();
+                self.current = Some(task.start(start));
                 Ok(name)
             }
         }
@@ -421,64 +332,53 @@ impl TaskManager {
     /// Generates a report of the tasks.
     pub fn generate_report(&self, date: NaiveDate, time: NaiveTime) -> String {
         let mut report = format!("  {} \n", date.format("%F"));
-        let total = self.tasks.iter().fold(Duration::zero(), |total, task| total + task.time_spent(time));
-        let max_length = self.tasks.iter().map(|task| task.name().len()).max().unwrap_or(0).max(5);
+        let total = self.tasks.iter().fold(self.current.as_ref().map(|task| task.time_spent(time)).unwrap_or(Duration::zero()), |total, task| total + task.time_spent());
+        let max_length = self.tasks.iter().map(|task| task.name.len()).max().unwrap_or(0).max(5);
         for task in &self.tasks {
-            let time = task.time_spent(time);
-            let minutes = time.num_minutes() % 60;
-            let hours = time.num_hours();
-            let percent = (time.num_milliseconds() as f64 * 100.0 / total.num_milliseconds() as f64).round() as u32;
-            if task.is_running() {
-                report += &format!("    {:<max_length$} | {hours:0>2}:{minutes:0>2} | {percent:>3}%\n", task.name()).green().bold().to_string();
-            } else {
-                report += &format!("    {:<max_length$} | {hours:0>2}:{minutes:0>2} | {percent:>3}%\n", task.name());
-            }
+            let time = task.time_spent();
+            let percent = percent(time.num_milliseconds() as u32, total.num_milliseconds() as u32);
+            report += &format!("    {:<max_length$} | {} | {percent:>3}%\n", task.name, format_duration(time));
         }
-        let minutes = total.num_minutes() % 60;
-        let hours = total.num_hours();
+        if let Some(task) = &self.current {
+            let time = task.time_spent(time);
+            let percent = percent(time.num_milliseconds() as u32, total.num_milliseconds() as u32);
+            report += &format!("    {:<max_length$} | {} | {percent:>3}%\n", task.name, format_duration(time)).green().bold().to_string();
+        }
         report += &format!("    {:=>1$}\n", "", max_length + 15);
-        report += &format!("    {:<max_length$} | {hours:0>2}:{minutes:0>2} | 100%\n", "Total");
+        report += &format!("    {:<max_length$} | {} | 100%\n", "Total", format_duration(total));
         report
     }
 
     pub fn rename_task(&mut self, task_name: String, new_name: String) -> crate::Result<(String, String)> {
-        let mut tasks: Vec<_> = self.tasks.iter_mut().filter(|task| task.name().contains(&task_name)).collect();
-        if tasks.len() >= 2 { 
-            return Err(TaskError::MultipleTasksFound)
-        }
+        let mut tasks: Vec<_> = self.tasks.iter_mut().filter(|task| task.name.contains(&task_name)).collect();
         let task = tasks.pop();
-        match task {
-            None => Err(TaskError::TaskNotFound(task_name)),
-            Some(task) => {
-                task.rename(new_name.clone());
+        if !tasks.is_empty() {
+            return Err(TaskError::MultipleTasksFound);
+        }
+        let current_task = self.current.as_mut().filter(|task| task.name.contains(&task_name));
+        match (task, current_task) {
+            (None, None) => Err(TaskError::TaskNotFound(task_name)),
+            (Some(task), None) => {
+                task.name.clone_from(&new_name);
                 Ok((task_name, new_name))
-            }
+            },
+            (None, Some(task)) => {
+                task.name.clone_from(&new_name);
+                Ok((task_name, new_name))
+            },
+            _ => Err(TaskError::MultipleTasksFound)
         }
     }
 }
 
-#[derive(Debug, Deserialize)]
-struct TaskManagerDeser {
-    tasks: Vec<Task>
+/// Formats a duration in hours and minutes.
+fn format_duration(duration: Duration) -> String {
+    let minutes = duration.num_minutes() % 60;
+    let hours = duration.num_hours();
+    format!("{hours:0>2}:{minutes:0>2}")
 }
-impl <'de> Deserialize<'de> for TaskManager {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>
-    {
-        let deser = TaskManagerDeser::deserialize(deserializer)?;
-        deser.try_into().map_err(|e: String| de::Error::custom(e))
-    }
-}
-impl TryFrom<TaskManagerDeser> for TaskManager {
-    type Error = String;
-    fn try_from(value: TaskManagerDeser) -> Result<Self, Self::Error> {
-        let tasks = value.tasks;
-        let size = tasks.len();
-        if tasks.iter().take(size - 1).any(|task| task.is_running()) {
-            Err("Only the last task can be running.".to_string())
-        } else {
-            Ok(TaskManager { tasks })
-        }
-    }
+
+/// Calculates the percentage of a number.
+fn percent(numerator: u32, denominator: u32) -> u32 {
+    (numerator as f64 / denominator as f64 * 100.0).round() as u32
 }
