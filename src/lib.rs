@@ -118,6 +118,12 @@ enum Command {
     },
     /// Lists all tasks.
     List,
+    /// Deletes a task.
+    Delete {
+        /// The name of the task to delete.
+        #[arg(value_name = "TASK")]
+        task: String
+    },
 }
 
 /// Configuration structure representing configuration options.
@@ -183,6 +189,7 @@ pub fn handle(cli: Cli) -> Result<()> {
         Command::Current => current(&config),
         Command::Rename { task, new_name } => rename(task, new_name, &config),
         Command::List => list(&config),
+        Command::Delete { task } => delete(task, &config),
     }
 }
 
@@ -261,6 +268,13 @@ fn list(config: &Config) -> Result<()> {
     let today = date(0, config)?;
     let task_manager = read_tasks(today, config)?;
     println!("{}", task_manager.list_tasks().join("\n"));
+    Ok(())
+}
+
+/// Deletes the given task.
+fn delete(task_name: String, config: &Config) -> Result<()> {
+    let task_name = process_mutating_action(0, config, |task_manager| task_manager.delete_task(task_name))?;
+    println!("Deleted task: {task_name}");
     Ok(())
 }
 

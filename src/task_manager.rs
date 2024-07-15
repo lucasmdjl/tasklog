@@ -378,6 +378,24 @@ impl TaskManager {
         }
         tasks
     }
+    
+    /// Deletes the given task.
+    pub fn delete_task(&mut self, task_name: String) -> crate::Result<String> {
+        let index = self.index_of(|task| task.name.contains(&task_name))?;
+        let current_task = self.current.as_ref().filter(|task| task.name.contains(&task_name));
+        match (index, current_task) {
+            (None, None) => Err(TaskError::TaskNotFound(task_name)),
+            (Some(index), None) => {
+                let task = self.tasks.swap_remove(index);
+                Ok(task.name)
+            },
+            (None, Some(_)) => {
+                self.current = None;
+                Ok(task_name)
+            },
+            _ => Err(TaskError::MultipleTasksFound)
+        }
+    }
 }
 
 /// Formats a duration in hours and minutes.
