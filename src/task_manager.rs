@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
-
+use std::cmp::Ordering;
 use chrono::{DateTime, Duration, Local, NaiveDate, NaiveTime};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde::de;
@@ -29,7 +29,7 @@ use crate::TaskError;
 /// - No two segments overlap.
 /// - If current is present, its value is after the end of the last segment.
 /// - Either current is present or segments is non-empty.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, PartialEq)]
 pub struct Task {
     /// The name of the task.
     name: String,
@@ -39,6 +39,23 @@ pub struct Task {
     /// [None] otherwise.
     #[serde(skip_serializing_if = "Option::is_none")]
     current: Option<DateTime<Local>>,
+}
+impl PartialOrd for Task {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        if self == other {
+            return Some(Ordering::Equal);
+        }
+        if self.name != other.name { 
+            return None;
+        }
+        if !other.is_running() && self.start_time() >= other.stop_time().unwrap() {
+            return Some(Ordering::Greater); 
+        }
+        if !self.is_running() && other.start_time() >= self.stop_time().unwrap() {
+            return Some(Ordering::Less);
+        }
+        None
+    }
 }
 impl Task {
     /// Returns the name of the task.
@@ -158,10 +175,23 @@ impl TryFrom<TaskDeser> for Task {
 /// 
 /// ### Contract:
 /// - The start and end times are stored in chronological order.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, PartialEq)]
 pub struct Segment {
     start: DateTime<Local>,
     end: DateTime<Local>,
+}
+impl PartialOrd for Segment {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        if self == other {
+            Some(Ordering::Equal)
+        } else if self.start >= other.end {
+            Some(Ordering::Greater)
+        } else if self.end <= other.start {
+            Some(Ordering::Less)
+        } else {
+            None
+        }
+    }
 }
 impl Segment {
     
