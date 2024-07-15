@@ -18,6 +18,7 @@
  */
 use std::cmp::Ordering;
 use chrono::{DateTime, Duration, Local, NaiveDate, NaiveTime};
+use colored::Colorize;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde::de;
 use crate::TaskError;
@@ -269,7 +270,7 @@ impl TaskManager {
         }
     }
     
-    /// Returns the index of the task matching the given predicate if any. If there are multiple, returns an error.
+    /// Returns the index of the task matching the given predicate if any. If there are multiple, returns [Err].
     fn index_of(&self, f: impl Fn(&Task) -> bool) -> crate::Result<Option<usize>> {
         let mut rs: Vec<_> = self.tasks.iter().enumerate().filter(|(_, task)| f(&task)).map(|(i, _)| i).collect();
         if rs.len() >= 2 { 
@@ -279,7 +280,7 @@ impl TaskManager {
         }
     }
     
-    /// Resumes an existing one with the given name.
+    /// Resumes an existing task with the given name.
     pub fn resume_task(&mut self, task_name: String, start: DateTime<Local>) -> crate::Result<String> {
         self.check_no_current_task()?;
         match self.index_of(|task| task.name.contains(&task_name))? {
@@ -348,14 +349,14 @@ impl TaskManager {
     pub fn generate_report(&self, date: NaiveDate, time: NaiveTime) -> String {
         let mut report = format!("  {} \n", date.format("%F"));
         let total = self.tasks.iter().fold(Duration::zero(), |total, task| total + task.time_spent(time));
-        let max_length = self.tasks.iter().map(|task| if task.is_running() { task.name.len() + 4 } else { task.name.len() }).max().unwrap_or(0).max(5);
+        let max_length = self.tasks.iter().map(|task| task.name.len()).max().unwrap_or(0).max(5);
         for task in &self.tasks {
             let time = task.time_spent(time);
             let minutes = time.num_minutes() % 60;
             let hours = time.num_hours();
             let percent = (time.num_milliseconds() as f64 * 100.0 / total.num_milliseconds() as f64).round() as u32;
             if task.is_running() {
-                report += &format!("    {:<max_length$} | {hours:0>2}:{minutes:0>2} | {percent:>3}%\n", task.name.clone() + " (R)");
+                report += &format!("    {:<max_length$} | {hours:0>2}:{minutes:0>2} | {percent:>3}%\n", task.name.clone()).green().bold().to_string();
             } else {
                 report += &format!("    {:<max_length$} | {hours:0>2}:{minutes:0>2} | {percent:>3}%\n", task.name.clone());
             }
