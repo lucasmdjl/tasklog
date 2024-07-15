@@ -10,11 +10,11 @@ keywords = ["task", "tracking", "tasklog", "time-tracking", "cli"]
 categories = ["command-line-utilities", "command-line-interface"]
 
 [dependencies]
-chrono = { version = "0.4.38", features = ["serde"] }
-clap = { version = "4.5.9", features = ["derive"] }
-config = "0.14.0"
-dirs = "5.0.1"
-serde = { version = "1.0.204", features = ["derive"] }
-serde_json = "1.0.120"
-thiserror = "1.0.62"
-toml = "0.8.14"
+chrono = { version = "0.4.38",default-features = false, features = ["serde", "clock"] }
+clap = { version = "4.5.9", default-features = false, features = ["derive", "std"] }
+config = { version = "0.14.0", default-features = false, features = ["toml"] }
+dirs = { version = "5.0.1", default-features = false, features = [] }
+serde = { version = "1.0.204", default-features = false, features = ["derive"] }
+serde_json = { version = "1.0.120", default-features = false, features = ["std"] }
+thiserror = { version = "1.0.62", default-features = false, features = [] }
+toml = { version = "0.8.14", default-features = false, features = ["display"] }
