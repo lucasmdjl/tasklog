@@ -337,15 +337,15 @@ impl TaskManager {
         for task in &self.tasks {
             let time = task.time_spent();
             let percent = percent(time.num_milliseconds() as u32, total.num_milliseconds() as u32);
-            report += &format!("    {:<max_length$} | {} | {percent:>3}%\n", task.name, format_duration(time));
+            report += &format!("    {:<max_length$} | {} | {percent:>5.1}%\n", task.name, format_duration(time));
         }
         if let Some(task) = &self.current {
             let time = task.time_spent(time);
             let percent = percent(time.num_milliseconds() as u32, total.num_milliseconds() as u32);
-            report += &format!("    {:<max_length$} | {} | {percent:>3}%\n", task.name, format_duration(time)).green().bold().to_string();
+            report += &format!("    {:<max_length$} | {} | {percent:>5.1}%\n", task.name, format_duration(time)).green().bold().to_string();
         }
-        report += &format!("    {:=>1$}\n", "", max_length + 15);
-        report += &format!("    {:<max_length$} | {} | 100%\n", "Total", format_duration(total));
+        report += &format!("    {:=>1$}\n", "", max_length + 17);
+        report += &format!("    {:<max_length$} | {} | 100.0%\n", "Total", format_duration(total));
         report
     }
 
@@ -379,6 +379,6 @@ fn format_duration(duration: Duration) -> String {
 }
 
 /// Calculates the percentage of a number.
-fn percent(numerator: u32, denominator: u32) -> u32 {
-    (numerator as f64 / denominator as f64 * 100.0).round() as u32
+fn percent(numerator: u32, denominator: u32) -> f64 {
+    numerator as f64 / denominator as f64 * 100.0
 }
