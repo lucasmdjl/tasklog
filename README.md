@@ -6,7 +6,7 @@ Tasklog is a simple CLI-based task management tool written in Rust. It allows yo
 
 - **Start a Task:** Begin a new task or resume an existing one.
 - **Stop a Task:** Stop the current running task.
-- **Switch Tasks:** Switch from the current task to a new one.
+- **Switch Tasks:** Switch from the current task to a new or different one.
 - **Generate Reports:** Generate a report of tasks worked on for a specific day.
 - **Get the Current Task:** Print the task currently running, if any.
 
@@ -57,7 +57,8 @@ To switch to a different task:
 ```sh
 tasklog switch <TASK_NAME>
 ```
-This will stop the current task and start the new task `<TASK_NAME>`.
+This will stop the current task and resume the task `<TASK_NAME>`.
+If the `--create` flag is set, it will create the task `<TASK_NAME>` instead of resuming it.
 
 ### Generate a Report
 
@@ -88,9 +89,9 @@ Stop the current task:
 tasklog stop
 ```
 
-Switch to a task named meeting:
+Switch to a new task named meeting:
 ```sh
-tasklog switch meeting
+tasklog switch -c meeting
 ```
 
 Generate a report for today:
