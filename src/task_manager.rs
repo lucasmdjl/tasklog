@@ -369,6 +369,15 @@ impl TaskManager {
             _ => Err(TaskError::MultipleTasksFound)
         }
     }
+    
+    /// Returns a list of all tasks.
+    pub fn list_tasks(&self) -> Vec<&str> {
+        let mut tasks: Vec<_> = self.tasks.iter().map(|task| task.name.as_str()).collect();
+        if let Some(task) = &self.current {
+            tasks.push(task.name.as_str());
+        }
+        tasks
+    }
 }
 
 /// Formats a duration in hours and minutes.

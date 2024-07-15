@@ -115,7 +115,9 @@ enum Command {
         /// The new name of the task.
         #[arg(value_name = "NEW_NAME")]
         new_name: String
-    }
+    },
+    /// Lists all tasks.
+    List,
 }
 
 /// Configuration structure representing configuration options.
@@ -180,6 +182,7 @@ pub fn handle(cli: Cli) -> Result<()> {
         Command::Report { n } => report(n, &config),
         Command::Current => current(&config),
         Command::Rename { task, new_name } => rename(task, new_name, &config),
+        Command::List => list(&config),
     }
 }
 
@@ -250,6 +253,14 @@ fn current(config: &Config) -> Result<()> {
         None => println!("No task currently running"),
         Some(task) => println!("Current task: {}", task),
     }
+    Ok(())
+}
+
+/// Lists all tasks.
+fn list(config: &Config) -> Result<()> {
+    let today = date(0, config)?;
+    let task_manager = read_tasks(today, config)?;
+    println!("{}", task_manager.list_tasks().join("\n"));
     Ok(())
 }
 
