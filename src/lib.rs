@@ -105,6 +105,15 @@ enum Command {
     },
     /// Prints the current task.
     Current,
+    /// Renames a task.
+    Rename {
+        /// The name of the task to rename.
+        #[arg(value_name = "TASK")]
+        task: String,
+        /// The new name of the task.
+        #[arg(value_name = "NEW_NAME")]
+        new_name: String
+    }
 }
 
 /// Configuration structure representing configuration options.
@@ -168,11 +177,12 @@ pub fn handle(cli: Cli) -> Result<()> {
         Command::Switch { task, create } => if create { switch_new(task, &config) } else { switch(task, &config) },
         Command::Report { n } => report(n, &config),
         Command::Current => current(&config),
+        Command::Rename { task, new_name } => rename(task, new_name, &config),
     }
 }
 
 /// Processes a mutating action on the tasks.
-fn process_mutating_action(days_ago: u16, config: &Config, action: impl FnOnce(&mut TaskManager) -> Result<String>) -> Result<String> {
+fn process_mutating_action<T>(days_ago: u16, config: &Config, action: impl FnOnce(&mut TaskManager) -> Result<T>) -> Result<T> {
     let today = date(days_ago, config)?;
     let mut tasks = read_tasks(today, config)?;
     let task_name = action(&mut tasks)?;
@@ -238,6 +248,12 @@ fn current(config: &Config) -> Result<()> {
         None => println!("No task currently running"),
         Some(task) => println!("Current task: {}", task),
     }
+    Ok(())
+}
+
+fn rename(task_name: String, new_name: String, config: &Config) -> Result<()> {
+    let (task_name, new_name) = process_mutating_action(0, config, |task_manager| task_manager.rename_task(task_name, new_name))?;
+    println!("Renamed task: {task_name} to {new_name}");
     Ok(())
 }
 

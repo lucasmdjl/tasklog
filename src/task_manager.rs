@@ -63,6 +63,11 @@ impl Task {
         &self.name
     }
     
+    /// Renames the task.
+    pub fn rename(&mut self, new_name: impl ToString) {
+        self.name = new_name.to_string();
+    }
+    
     /// Creates a new (running) task with the given name.
     pub fn new(name: impl ToString, now: DateTime<Local>) -> Self {
         Task {
@@ -355,6 +360,17 @@ impl TaskManager {
         report += &format!("    {:=>1$}\n", "", max_length + 15);
         report += &format!("    {:<max_length$} | {hours:0>2}:{minutes:0>2} | 100%\n", "Total");
         report
+    }
+    
+    pub fn rename_task(&mut self, task_name: String, new_name: String) -> crate::Result<(String, String)> {
+        let task = self.tasks.iter_mut().find(|task| task.name == task_name);
+        match task {
+            None => Err(TaskError::TaskNotFound(task_name)),
+            Some(task) => {
+                task.rename(new_name.clone());
+                Ok((task_name, new_name))
+            }
+        }
     }
 }
 
