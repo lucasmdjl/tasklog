@@ -16,6 +16,7 @@
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
+use std::mem;
 use chrono::{DateTime, Duration, Local, NaiveDate, NaiveTime};
 use colored::Colorize;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -271,6 +272,7 @@ impl TaskManager {
             None => Err(TaskError::TaskNotFound(task_name)),
             Some(index) => {
                 let task = self.tasks.swap_remove(index);
+                let task_name = task.name.clone();
                 self.current = Some(task.start(start));
                 Ok(task_name)
             }
@@ -359,11 +361,11 @@ impl TaskManager {
         match (task, current_task) {
             (None, None) => Err(TaskError::TaskNotFound(task_name)),
             (Some(task), None) => {
-                task.name.clone_from(&new_name);
+                let task_name = mem::replace(&mut task.name, new_name.clone());
                 Ok((task_name, new_name))
             },
             (None, Some(task)) => {
-                task.name.clone_from(&new_name);
+                let task_name = mem::replace(&mut task.name, new_name.clone());
                 Ok((task_name, new_name))
             },
             _ => Err(TaskError::MultipleTasksFound)
@@ -390,8 +392,8 @@ impl TaskManager {
                 Ok(task.name)
             },
             (None, Some(_)) => {
-                self.current = None;
-                Ok(task_name)
+                let task = self.current.take().expect("Should exist since current_task is Some");
+                Ok(task.name)
             },
             _ => Err(TaskError::MultipleTasksFound)
         }
