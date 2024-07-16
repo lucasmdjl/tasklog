@@ -273,23 +273,6 @@ impl TaskManager {
         }
     }
     
-    /// Resumes an existing task with the given name.
-    pub fn resume_task(&mut self, task_name: String, start: DateTime<Local>) -> crate::Result<String> {
-        self.check_no_current_task()?;
-        match self.index_of(|task| task.name.contains(&task_name))? {
-            None => Err(TaskError::TaskNotFound(task_name)),
-            Some(index) => Ok(self.do_resume_task(index, start)),
-        }
-    }
-    
-    /// Resumes an existing task at the given index without performing any checks.
-    fn do_resume_task(&mut self, index: usize, start: DateTime<Local>) -> String {
-        let task = self.tasks.remove(index);
-        let task_name = task.name.clone();
-        self.current = Some(task.start(start));
-        task_name
-    }
-    
     /// Starts a new task with the given name.
     pub fn start_new_task(&mut self, task_name: String, start: DateTime<Local>) -> crate::Result<String> {
         self.check_no_current_task()?;
@@ -332,16 +315,21 @@ impl TaskManager {
         }
     }
 
-    /// Stops the current task and resumes the given one.
-    pub fn switch_task(&mut self, task_name: String, now: DateTime<Local>) -> crate::Result<String> {
+    /// Resumes an existing task with the given name.
+    pub fn resume_task(&mut self, task_name: String, start: DateTime<Local>) -> crate::Result<String> {
+        self.check_no_current_task()?;
         match self.index_of(|task| task.name.contains(&task_name))? {
             None => Err(TaskError::TaskNotFound(task_name)),
-            Some(index) => {
-                self.stop_current_task(TaskEnd::Time(now))?;
-                let task = self.do_resume_task(index, now);
-                Ok(task)
-            }
+            Some(index) => Ok(self.do_resume_task(index, start)),
         }
+    }
+
+    /// Resumes an existing task at the given index without performing any checks.
+    fn do_resume_task(&mut self, index: usize, start: DateTime<Local>) -> String {
+        let task = self.tasks.remove(index);
+        let task_name = task.name.clone();
+        self.current = Some(task.start(start));
+        task_name
     }
 
     /// Stops the current task and starts a new one.
@@ -354,6 +342,67 @@ impl TaskManager {
                 Ok(task)
             }
         }
+    }
+
+    /// Stops the current task and resumes the given one.
+    pub fn switch_task(&mut self, task_name: String, now: DateTime<Local>) -> crate::Result<String> {
+        match self.index_of(|task| task.name.contains(&task_name))? {
+            None => Err(TaskError::TaskNotFound(task_name)),
+            Some(index) => {
+                self.stop_current_task(TaskEnd::Time(now))?;
+                let task = self.do_resume_task(index, now);
+                Ok(task)
+            }
+        }
+    }
+
+    /// Deletes the given task.
+    pub fn delete_task(&mut self, task_name: String) -> crate::Result<String> {
+        let index = self.index_of(|task| task.name.contains(&task_name))?;
+        let current_task = self.current.as_ref().filter(|task| task.name.contains(&task_name));
+        match (index, current_task) {
+            (None, None) => Err(TaskError::TaskNotFound(task_name)),
+            (Some(index), None) => {
+                let task = self.tasks.remove(index);
+                Ok(task.name)
+            },
+            (None, Some(_)) => {
+                let task = self.current.take().expect("Should exist since current_task is Some");
+                Ok(task.name)
+            },
+            _ => Err(TaskError::MultipleTasksFound)
+        }
+    }
+
+    /// Renames the given task.
+    pub fn rename_task(&mut self, task_name: String, new_name: String) -> crate::Result<(String, String)> {
+        let mut tasks: Vec<_> = self.tasks.iter_mut().filter(|task| task.name.contains(&task_name)).collect();
+        let task = tasks.pop();
+        if !tasks.is_empty() {
+            return Err(TaskError::MultipleTasksFound);
+        }
+        let current_task = self.current.as_mut().filter(|task| task.name.contains(&task_name));
+        match (task, current_task) {
+            (None, None) => Err(TaskError::TaskNotFound(task_name)),
+            (Some(task), None) => {
+                let task_name = mem::replace(&mut task.name, new_name.clone());
+                Ok((task_name, new_name))
+            },
+            (None, Some(task)) => {
+                let task_name = mem::replace(&mut task.name, new_name.clone());
+                Ok((task_name, new_name))
+            },
+            _ => Err(TaskError::MultipleTasksFound)
+        }
+    }
+
+    /// Returns a list of all tasks.
+    pub fn list_tasks(&self) -> Vec<&str> {
+        let mut tasks: Vec<_> = self.tasks.iter().map(|task| task.name.as_str()).collect();
+        if let Some(task) = &self.current {
+            tasks.push(task.name.as_str());
+        }
+        tasks
     }
 
     /// Generates a report of the tasks.
@@ -377,54 +426,6 @@ impl TaskManager {
         report += &format!("    {:=>1$}\n", "", max_length + 17);
         report += &format!("    {:<max_length$} | {} | 100.0%\n", "Total", format_duration(total));
         report
-    }
-
-    pub fn rename_task(&mut self, task_name: String, new_name: String) -> crate::Result<(String, String)> {
-        let mut tasks: Vec<_> = self.tasks.iter_mut().filter(|task| task.name.contains(&task_name)).collect();
-        let task = tasks.pop();
-        if !tasks.is_empty() {
-            return Err(TaskError::MultipleTasksFound);
-        }
-        let current_task = self.current.as_mut().filter(|task| task.name.contains(&task_name));
-        match (task, current_task) {
-            (None, None) => Err(TaskError::TaskNotFound(task_name)),
-            (Some(task), None) => {
-                let task_name = mem::replace(&mut task.name, new_name.clone());
-                Ok((task_name, new_name))
-            },
-            (None, Some(task)) => {
-                let task_name = mem::replace(&mut task.name, new_name.clone());
-                Ok((task_name, new_name))
-            },
-            _ => Err(TaskError::MultipleTasksFound)
-        }
-    }
-    
-    /// Returns a list of all tasks.
-    pub fn list_tasks(&self) -> Vec<&str> {
-        let mut tasks: Vec<_> = self.tasks.iter().map(|task| task.name.as_str()).collect();
-        if let Some(task) = &self.current {
-            tasks.push(task.name.as_str());
-        }
-        tasks
-    }
-    
-    /// Deletes the given task.
-    pub fn delete_task(&mut self, task_name: String) -> crate::Result<String> {
-        let index = self.index_of(|task| task.name.contains(&task_name))?;
-        let current_task = self.current.as_ref().filter(|task| task.name.contains(&task_name));
-        match (index, current_task) {
-            (None, None) => Err(TaskError::TaskNotFound(task_name)),
-            (Some(index), None) => {
-                let task = self.tasks.remove(index);
-                Ok(task.name)
-            },
-            (None, Some(_)) => {
-                let task = self.current.take().expect("Should exist since current_task is Some");
-                Ok(task.name)
-            },
-            _ => Err(TaskError::MultipleTasksFound)
-        }
     }
 }
 
