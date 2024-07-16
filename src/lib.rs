@@ -34,7 +34,7 @@ pub mod task_manager;
 pub enum TaskError {
     #[error("Task '{0}' is already running")]
     TaskAlreadyRunning(String),
-    #[error("No task is currently not running")]
+    #[error("No task is currently running")]
     TaskNotRunning,
     #[error("No tasks found")]
     NoTasksFound,
@@ -95,8 +95,8 @@ enum Command {
     Switch {
         /// The name of the task to switch to.
         #[arg(value_name = "TASK")]
-        task: String,
-        #[arg(short, long, action = ArgAction::SetTrue)]
+        task: Option<String>,
+        #[arg(short, long, action = ArgAction::SetTrue, requires = "task")]
         create: bool,
     },
     /// Prints a report of the tasks worked on in a day.
@@ -188,7 +188,14 @@ pub fn handle(cli: Cli) -> Result<()> {
             Some(task) => resume(task, &config),
         }
         Command::Stop { n, duration } => stop(n.unwrap_or(0), duration, &config),
-        Command::Switch { task, create } => if create { switch_new(task, &config) } else { switch(task, &config) },
+        Command::Switch { task, create } => if create { 
+            switch_new(task.expect("task should exist when create flag is set"), &config) 
+        } else { 
+            match task {
+                Some(task) => switch(task, &config),
+                None => switch_previous(&config),
+            } 
+        },
         Command::Report { n } => report(n, &config),
         Command::Current => current(&config),
         Command::Rename { task, new_name } => rename(task, new_name, &config),
@@ -253,6 +260,13 @@ fn switch(task_name: String, config: &Config) -> Result<()> {
 fn switch_new(task_name: String, config: &Config) -> Result<()> {
     let task_name = process_mutating_action(0, config, |task_manager| task_manager.switch_new_task(task_name, Local::now()))?;
     println!("Switched to new task: {task_name}");
+    Ok(())
+}
+
+/// Switches to the previous task.
+fn switch_previous(config: &Config) -> Result<()> {
+    let task_name = process_mutating_action(0, config, |task_manager| task_manager.switch_last_task(Local::now()))?;
+    println!("Switched to task: {task_name}");
     Ok(())
 }
 

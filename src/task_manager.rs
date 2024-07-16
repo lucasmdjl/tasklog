@@ -344,6 +344,18 @@ impl TaskManager {
         }
     }
 
+    /// Stops the current task and starts a new one.
+    pub fn switch_last_task(&mut self, now: DateTime<Local>) -> crate::Result<String> {
+        match self.tasks.len() {
+            0 => Err(TaskError::NoTasksFound),
+            len => {
+                self.stop_current_task(TaskEnd::Time(now))?;
+                let task = self.do_resume_task(len - 1, now);
+                Ok(task)
+            }
+        }
+    }
+
     /// Stops the current task and resumes the given one.
     pub fn switch_task(&mut self, task_name: String, now: DateTime<Local>) -> crate::Result<String> {
         match self.index_of(|task| task.name.contains(&task_name))? {

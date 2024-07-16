@@ -502,6 +502,78 @@ mod task_manager {
         assert_eq!(task_name, "Test");
     }
 
+
+    #[test]
+    fn test_task_manager_switch_last_task_when_no_tasks() {
+        let mut task_manager = TaskManager {
+            tasks: vec![],
+            current: None
+        };
+        let result = task_manager.switch_last_task(Local::now());
+        assert!(task_manager.current.is_none());
+        assert!(task_manager.tasks.is_empty());
+        assert!(result.is_err());
+        let error = result.unwrap_err();
+        assert!(matches!(error, TaskError::NoTasksFound));
+    }
+    
+    #[test]
+    fn test_task_manager_switch_last_task_when_none_running() {
+        let now = Local::now();
+        let task = StoppedTask {
+            name: "Test".to_string(),
+            segments: vec![],
+            last_segment: Segment::new(now, now + Duration::minutes(10))
+        };
+        let mut task_manager = TaskManager {
+            tasks: vec![task.clone()],
+            current: None
+        };
+        let result = task_manager.switch_last_task(now + Duration::minutes(20));
+        assert!(task_manager.current.is_none());
+        assert_eq!(task_manager.tasks, vec![task]);
+        assert!(result.is_err());
+        let error = result.unwrap_err();
+        assert!(matches!(error, TaskError::TaskNotRunning));
+    }
+
+    #[test]
+    fn test_task_manager_switch_last_task_when_none_stopped() {
+        let now = Local::now();
+        let task = RunningTask::new("Test", now);
+        let mut task_manager = TaskManager {
+            tasks: vec![],
+            current: Some(task.clone())
+        };
+        let result = task_manager.switch_last_task(now + Duration::minutes(20));
+        assert_eq!(task_manager.current, Some(task));
+        assert!(task_manager.tasks.is_empty());
+        assert!(result.is_err());
+        let error = result.unwrap_err();
+        assert!(matches!(error, TaskError::NoTasksFound));
+    }
+    
+    #[test]
+    fn test_task_manager_switch_last_task() {
+        let now = Local::now();
+        let task1 = StoppedTask {
+            name: "Test1".to_string(),
+            segments: vec![],
+            last_segment: Segment::new(now, now + Duration::minutes(10))
+        };
+        let task2 = RunningTask::new("Test2", now + Duration::minutes(15));
+        let mut task_manager = TaskManager {
+            tasks: vec![task1.clone()],
+            current: Some(task2.clone())
+        };
+        let result = task_manager.switch_last_task(now + Duration::minutes(20));
+        assert_eq!(task_manager.current, Some(task1.start(now + Duration::minutes(20))));
+        assert_eq!(task_manager.tasks, vec![task2.stop(TaskEnd::Time(now + Duration::minutes(20)))]);
+        assert!(result.is_ok());
+        let task_name = result.unwrap();
+        assert_eq!(task_name, "Test1");
+    }
+
     #[test]
     fn test_task_manager_switch_task_when_not_exists() {
         let mut task_manager = TaskManager {
