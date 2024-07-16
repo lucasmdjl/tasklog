@@ -9,6 +9,9 @@ Tasklog is a simple CLI-based task management tool written in Rust. It allows yo
 - **Switch Tasks:** Switch from the current task to a new or different one.
 - **Generate Reports:** Generate a report of tasks worked on for a specific day.
 - **Get the Current Task:** Print the task currently running, if any.
+- **List Tasks:** Print a list of the tasks worked on today.
+- **Rename a Task**
+- **Delete a Task**
 
 ## Installation
 
@@ -74,6 +77,27 @@ If `n` is not specified, the report will be of today.
 To get the task currently running:
 ```sh
 tasklog current
+```
+
+### List Tasks
+
+To lists the tasks worked on today:
+```sh
+tasklog list
+```
+
+### Rename a Task
+
+To rename a task:
+```sh
+tasklog rename <OLD_NAME> <NEW_NAME>
+```
+
+### Delete a Task
+
+To delete a task:
+```sh
+tasklog delete <TASK_NAME>
 ```
 
 
