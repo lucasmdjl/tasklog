@@ -16,8 +16,11 @@
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
+#[cfg(test)]
+mod test;
+
 use std::mem;
-use chrono::{DateTime, Duration, Local, NaiveDate, NaiveTime};
+use chrono::{DateTime, Duration, Local, NaiveDate};
 use colored::Colorize;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde::de;
@@ -28,7 +31,7 @@ use crate::TaskError;
 /// ### Contract
 /// - segments must be in chronological order.
 /// - current must be after the end of the last of segments.
-#[derive(Debug, Serialize, PartialEq)]
+#[derive(Debug, Serialize, PartialEq, Clone)]
 pub struct RunningTask {
     name: String,
     segments: Vec<Segment>,
@@ -59,9 +62,9 @@ impl RunningTask {
     }
     
     /// Calculates the total time spent on the task.
-    pub fn time_spent(&self, now: NaiveTime) -> Duration {
+    pub fn time_spent(&self, now: DateTime<Local>) -> Duration {
         self.segments.iter().fold(Duration::zero(), |total, segment| total + segment.duration()) +
-                    (now - self.current.time())
+                    (now - self.current)
     }
 }
 
@@ -86,7 +89,7 @@ impl TryFrom<RunningTaskDeser> for RunningTask {
     fn try_from(value: RunningTaskDeser) -> Result<Self, Self::Error> {
         let segments = value.segments;
         for i in 1..segments.len() {
-            if segments[i].start < segments[i - 1].end { 
+            if segments[i].start < segments[i - 1].end {
                 Err("segments must be in chronological order")?;
             }
         }
@@ -108,7 +111,7 @@ impl TryFrom<RunningTaskDeser> for RunningTask {
 /// ### Contract
 /// - segments must be in chronological order.
 /// - last_segment must start after the end of the last of segments.
-#[derive(Debug, Serialize, PartialEq)]
+#[derive(Debug, Serialize, PartialEq, Clone)]
 pub struct StoppedTask {
     name: String,
     segments: Vec<Segment>,
@@ -181,7 +184,7 @@ impl TryFrom<StoppedTaskDeser> for StoppedTask {
 /// 
 /// ### Contract:
 /// - The start and end times are stored in chronological order.
-#[derive(Debug, Serialize, PartialEq)]
+#[derive(Debug, Serialize, PartialEq, Clone)]
 pub struct Segment {
     start: DateTime<Local>,
     end: DateTime<Local>,
@@ -240,6 +243,11 @@ pub struct TaskManager {
     current: Option<RunningTask>,
 }
 impl TaskManager {
+    
+    /// Creates a new task manager.
+    pub fn new() -> Self {
+        Self::default()
+    }
 
     /// Returns the currently running task if any.
     pub fn current_task(&self) -> Option<&str> {
@@ -270,26 +278,32 @@ impl TaskManager {
         self.check_no_current_task()?;
         match self.index_of(|task| task.name.contains(&task_name))? {
             None => Err(TaskError::TaskNotFound(task_name)),
-            Some(index) => {
-                let task = self.tasks.swap_remove(index);
-                let task_name = task.name.clone();
-                self.current = Some(task.start(start));
-                Ok(task_name)
-            }
+            Some(index) => Ok(self.do_resume_task(index, start)),
         }
+    }
+    
+    /// Resumes an existing task at the given index without performing any checks.
+    fn do_resume_task(&mut self, index: usize, start: DateTime<Local>) -> String {
+        let task = self.tasks.remove(index);
+        let task_name = task.name.clone();
+        self.current = Some(task.start(start));
+        task_name
     }
     
     /// Starts a new task with the given name.
     pub fn start_new_task(&mut self, task_name: String, start: DateTime<Local>) -> crate::Result<String> {
         self.check_no_current_task()?;
         match self.index_of(|task| task.name == task_name)? {
-            None => {
-                let new_task = RunningTask::new(task_name.clone(), start);
-                self.current = Some(new_task);
-                Ok(task_name)
-            }
+            None => Ok(self.do_start_new_task(task_name, start)),
             Some(_) => Err(TaskError::TaskAlreadyExists(task_name))
         }
+    }
+    
+    /// Starts a new task with the given name without performing any checks.
+    fn do_start_new_task(&mut self, task_name: String, start: DateTime<Local>) -> String {
+        let new_task = RunningTask::new(task_name.clone(), start);
+        self.current = Some(new_task);
+        task_name
     }
 
     /// Stops the current task.
@@ -306,6 +320,7 @@ impl TaskManager {
 
     /// Resumes the last task.
     pub fn resume_last_task(&mut self, start: DateTime<Local>) -> crate::Result<String> {
+        self.check_no_current_task()?;
         let task = self.tasks.pop();
         match task {
             None => Err(TaskError::NoTasksFound),
@@ -319,20 +334,30 @@ impl TaskManager {
 
     /// Stops the current task and resumes the given one.
     pub fn switch_task(&mut self, task_name: String, now: DateTime<Local>) -> crate::Result<String> {
-        self.stop_current_task(TaskEnd::Time(now))?;
-        let task = self.resume_task(task_name, now)?;
-        Ok(task)
+        match self.index_of(|task| task.name.contains(&task_name))? {
+            None => Err(TaskError::TaskNotFound(task_name)),
+            Some(index) => {
+                self.stop_current_task(TaskEnd::Time(now))?;
+                let task = self.do_resume_task(index, now);
+                Ok(task)
+            }
+        }
     }
 
     /// Stops the current task and starts a new one.
     pub fn switch_new_task(&mut self, task_name: String, now: DateTime<Local>) -> crate::Result<String> {
-        self.stop_current_task(TaskEnd::Time(now))?;
-        let task = self.start_new_task(task_name, now)?;
-        Ok(task)
+        match self.index_of(|task| task.name == task_name)? {
+            Some(_) => Err(TaskError::TaskAlreadyExists(task_name)),
+            None => {
+                self.stop_current_task(TaskEnd::Time(now))?;
+                let task = self.do_start_new_task(task_name, now);
+                Ok(task)
+            }
+        }
     }
 
     /// Generates a report of the tasks.
-    pub fn generate_report(&self, date: NaiveDate, time: NaiveTime) -> String {
+    pub fn generate_report(&self, date: NaiveDate, time: DateTime<Local>) -> String {
         let mut report = format!("  {} \n", date.format("%F"));
         let total = self.tasks.iter().fold(self.current.as_ref().map(|task| task.time_spent(time)).unwrap_or_default(), 
                                            |total, task| total + task.time_spent());
@@ -391,7 +416,7 @@ impl TaskManager {
         match (index, current_task) {
             (None, None) => Err(TaskError::TaskNotFound(task_name)),
             (Some(index), None) => {
-                let task = self.tasks.swap_remove(index);
+                let task = self.tasks.remove(index);
                 Ok(task.name)
             },
             (None, Some(_)) => {

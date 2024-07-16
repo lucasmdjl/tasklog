@@ -295,7 +295,7 @@ fn report(days_ago: Vec<u16>, config: &Config) -> Result<()> {
     for days_ago in days_ago {
         let date = date(days_ago, config)?;
         let task_manager = read_tasks(date, config)?;
-        let report = task_manager.generate_report(date, Local::now().time());
+        let report = task_manager.generate_report(date, Local::now());
         println!("\n{report}");
     }
     Ok(())
