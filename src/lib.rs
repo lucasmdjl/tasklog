@@ -117,7 +117,11 @@ enum Command {
         new_name: String
     },
     /// Lists all tasks.
-    List,
+    List {
+        /// The number of days before today to list tasks.
+        #[arg(short, default_value_t = 0, require_equals = true, value_name = "DAYS")]
+        n: u16
+    },
     /// Deletes a task.
     Delete {
         /// The name of the task to delete.
@@ -188,7 +192,7 @@ pub fn handle(cli: Cli) -> Result<()> {
         Command::Report { n } => report(n, &config),
         Command::Current => current(&config),
         Command::Rename { task, new_name } => rename(task, new_name, &config),
-        Command::List => list(&config),
+        Command::List { n } => list(n, &config),
         Command::Delete { task } => delete(task, &config),
     }
 }
@@ -264,10 +268,11 @@ fn current(config: &Config) -> Result<()> {
 }
 
 /// Lists all tasks.
-fn list(config: &Config) -> Result<()> {
-    let today = date(0, config)?;
+fn list(days_ago: u16,config: &Config) -> Result<()> {
+    let today = date(days_ago, config)?;
     let task_manager = read_tasks(today, config)?;
-    println!("{}", task_manager.list_tasks().join("\n"));
+    let tasks = task_manager.list_tasks();
+    println!("{}", tasks.join("\n"));
     Ok(())
 }
 
