@@ -334,8 +334,11 @@ impl TaskManager {
     /// Generates a report of the tasks.
     pub fn generate_report(&self, date: NaiveDate, time: NaiveTime) -> String {
         let mut report = format!("  {} \n", date.format("%F"));
-        let total = self.tasks.iter().fold(self.current.as_ref().map(|task| task.time_spent(time)).unwrap_or(Duration::zero()), |total, task| total + task.time_spent());
-        let max_length = self.tasks.iter().map(|task| task.name.len()).max().unwrap_or(0).max(5);
+        let total = self.tasks.iter().fold(self.current.as_ref().map(|task| task.time_spent(time)).unwrap_or_default(), 
+                                           |total, task| total + task.time_spent());
+        let max_length = self.tasks.iter().map(|task| task.name.len()).max().unwrap_or(0)
+            .max(self.current.as_ref().map(|task| task.name.len()).unwrap_or(0))
+            .max(5);
         for task in &self.tasks {
             let time = task.time_spent();
             let percent = percent(time.num_milliseconds() as u32, total.num_milliseconds() as u32);
