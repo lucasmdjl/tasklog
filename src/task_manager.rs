@@ -41,8 +41,10 @@ pub enum TaskError {
     TaskAlreadyExists(String),
     #[error("Task name is ambiguous")]
     MultipleTasksFound,
-    #[error("Invalid stop time. Must not be in the future")]
+    #[error("Invalid stop time. Must not be in the future or before the task's last start time")]
     InvalidStopTime,
+    #[error("Invalid start time. Must not be after the task's stop time")]
+    InvalidStartTime,
     #[error("File IO error: {0}")]
     FileIO(#[from] std::io::Error),
     #[error("Serialization error: {0}")]
@@ -76,13 +78,19 @@ impl RunningTask {
     }
     
     /// Stops the task.
-    fn stop(self, end: DateTime<Local>) -> StoppedTask {
+    fn stop(self, now: DateTime<Local>) -> StoppedTask {
+        assert!(self.can_stop(now));
         let start = self.current;
         StoppedTask {
             name: self.name,
             segments: self.segments,
-            last_segment: Segment::new(start, end),
+            last_segment: Segment::new(start, now),
         }
+    }
+    
+    /// Checks if the task can be stopped.
+    fn can_stop(&self, now: DateTime<Local>) -> bool {
+        self.current <= now
     }
     
     /// Calculates the total time spent on the task.
@@ -144,8 +152,7 @@ struct StoppedTask {
 impl StoppedTask {
     /// Starts the task. Panics if now is before the end of the last segment.
     fn start(self, now: DateTime<Local>) -> RunningTask {
-        let end = self.last_segment.end;
-        assert!(now >= end);
+        assert!(self.can_start(now));
         let mut segments = self.segments;
         segments.push(self.last_segment);
         RunningTask {
@@ -153,6 +160,11 @@ impl StoppedTask {
             segments,
             current: now,
         }
+    }
+    
+    /// Checks if the task can be started.
+    fn can_start(&self, now: DateTime<Local>) -> bool {
+        self.stop_time() <= now
     }
 
     /// Returns the last stop time of the task.
@@ -304,17 +316,33 @@ impl TaskManager {
         self.current = Some(new_task);
         task_name
     }
+    
+    /// Checks if the current task can be stopped.
+    fn check_can_stop(&self, task: &RunningTask, now: DateTime<Local>) -> TaskResult<()> {
+        if task.can_stop(now) { 
+            Ok(())
+        } else {
+            Err(TaskError::InvalidStopTime)
+        }
+    }
 
     /// Stops the current task.
     pub fn stop_current_task_with_time(&mut self, end: DateTime<Local>) -> TaskResult<String> {
-        match self.current.take() {
+        match &self.current {
             None => Err(TaskError::TaskNotRunning),
             Some(task) => {
-                let name = task.name.to_string();
-                self.tasks.push(task.stop(end));
-                Ok(name)
+                self.check_can_stop(task, end)?;
+                Ok(self.do_stop_current_task(end))
             }
         }
+    }
+    
+    /// Stops the current task without performing any checks.
+    fn do_stop_current_task(&mut self, end: DateTime<Local>) -> String {
+        let task = self.current.take().unwrap();
+        let name = task.name.to_string();
+        self.tasks.push(task.stop(end));
+        name
     }
 
     /// Stops the current task.
@@ -323,24 +351,33 @@ impl TaskManager {
             None => Err(TaskError::TaskNotRunning),
             Some(task) => {
                 let end = task.current + duration;
-                if end > now {
-                    Err(TaskError::InvalidStopTime)
+                if end <= now {
+                    Ok(self.do_stop_current_task(end))
                 } else {
-                    self.stop_current_task_with_time(end)
+                    Err(TaskError::InvalidStopTime)
                 }
             }
+        }
+    }
+    
+    /// Checks if the task at the given index can be started at the given time.
+    fn check_can_start(&self, index: usize, now: DateTime<Local>) -> TaskResult<()> {
+        if self.tasks[index].can_start(now) {
+            Ok(())
+        } else {
+            Err(TaskError::InvalidStartTime)
         }
     }
 
     /// Resumes the last task.
     pub fn resume_last_task(&mut self, start: DateTime<Local>) -> TaskResult<String> {
         self.check_no_current_task()?;
-        let task = self.tasks.pop();
-        match task {
-            None => Err(TaskError::NoTasksFound),
-            Some(task) => {
-                let name = task.name.to_string();
-                self.current = Some(task.start(start));
+        match self.tasks.len() {
+            0 => Err(TaskError::NoTasksFound),
+            len => {
+                let index = len - 1;
+                self.check_can_start(index, start)?;
+                let name = self.do_resume_task(index, start);
                 Ok(name)
             }
         }
@@ -351,7 +388,10 @@ impl TaskManager {
         self.check_no_current_task()?;
         match self.index_of(|task| task.name.contains(&task_name))? {
             None => Err(TaskError::TaskNotFound(task_name)),
-            Some(index) => Ok(self.do_resume_task(index, start)),
+            Some(index) => {
+                self.check_can_start(index, start)?;
+                Ok(self.do_resume_task(index, start))
+            },
         }
     }
 
@@ -380,6 +420,8 @@ impl TaskManager {
         match self.tasks.len() {
             0 => Err(TaskError::NoTasksFound),
             len => {
+                let index = len - 1;
+                self.check_can_start(index, now)?;
                 self.stop_current_task_with_time(now)?;
                 let task = self.do_resume_task(len - 1, now);
                 Ok(task)
@@ -392,6 +434,7 @@ impl TaskManager {
         match self.index_of(|task| task.name.contains(&task_name))? {
             None => Err(TaskError::TaskNotFound(task_name)),
             Some(index) => {
+                self.check_can_start(index, now)?;
                 self.stop_current_task_with_time(now)?;
                 let task = self.do_resume_task(index, now);
                 Ok(task)

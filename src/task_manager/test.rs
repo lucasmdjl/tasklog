@@ -633,7 +633,7 @@ mod task_manager {
             tasks: vec![stopped_task.clone()],
             current: None
         };
-        let result = task_manager.switch_task("Test".to_string(), Local::now());
+        let result = task_manager.switch_task("Test".to_string(), now + Duration::minutes(20));
         assert!(task_manager.current.is_none());
         assert_eq!(task_manager.tasks, vec![stopped_task]);
         assert!(result.is_err());
