@@ -25,7 +25,7 @@ use clap::{Parser, Subcommand, ArgAction};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::task_manager::{TaskEnd, TaskManager};
+use crate::task_manager::TaskManager;
 
 pub mod task_manager;
 
@@ -44,6 +44,8 @@ pub enum TaskError {
     TaskAlreadyExists(String),
     #[error("Task name is ambiguous")]
     MultipleTasksFound,
+    #[error("Invalid stop time. Must not be in the future")]
+    InvalidStopTime,
     #[error("File IO error: {0}")]
     FileIO(#[from] std::io::Error),
     #[error("Serialization error: {0}")]
@@ -233,8 +235,8 @@ fn start_new(task_name: String, config: &Config) -> Result<()> {
 fn stop(days_ago: u16, duration: Option<u16>, config: &Config) -> Result<()> {
     let task_name = process_mutating_action(days_ago, config, |task_manager| 
         match duration {
-            None => task_manager.stop_current_task(TaskEnd::Time(Local::now())),
-            Some(minutes) => task_manager.stop_current_task(TaskEnd::Duration(Duration::minutes(minutes as i64)))
+            None => task_manager.stop_current_task_with_time(Local::now()),
+            Some(minutes) => task_manager.stop_current_task_with_duration(Duration::minutes(minutes as i64), Local::now()),
         }
     )?;
     println!("Stopped task: {task_name}");

@@ -48,12 +48,8 @@ impl RunningTask {
     }
     
     /// Stops the task.
-    pub fn stop(self, end: TaskEnd) -> StoppedTask {
+    pub fn stop(self, end: DateTime<Local>) -> StoppedTask {
         let start = self.current;
-        let end = match end {
-            TaskEnd::Time(end) => end,
-            TaskEnd::Duration(duration) => start + duration,
-        };
         StoppedTask {
             name: self.name,
             segments: self.segments,
@@ -203,14 +199,6 @@ impl Segment {
     }
 }
 
-/// Describes the end of a task.
-pub enum TaskEnd {
-    /// Ends the task at the given time.
-    Time(DateTime<Local>),
-    /// Ends the task after the given duration.
-    Duration(Duration),
-}
-
 #[derive(Debug, Deserialize)]
 struct SegmentDeser {
     start: DateTime<Local>,
@@ -290,13 +278,28 @@ impl TaskManager {
     }
 
     /// Stops the current task.
-    pub fn stop_current_task(&mut self, end: TaskEnd) -> crate::Result<String> {
+    pub fn stop_current_task_with_time(&mut self, end: DateTime<Local>) -> crate::Result<String> {
         match self.current.take() {
             None => Err(TaskError::TaskNotRunning),
             Some(task) => {
                 let name = task.name.to_string();
                 self.tasks.push(task.stop(end));
                 Ok(name)
+            }
+        }
+    }
+
+    /// Stops the current task.
+    pub fn stop_current_task_with_duration(&mut self, duration: Duration, now: DateTime<Local>) -> crate::Result<String> {
+        match &self.current {
+            None => Err(TaskError::TaskNotRunning),
+            Some(task) => {
+                let end = task.current + duration;
+                if end > now {
+                    Err(TaskError::InvalidStopTime)
+                } else {
+                    self.stop_current_task_with_time(end)
+                }
             }
         }
     }
@@ -337,7 +340,7 @@ impl TaskManager {
         match self.index_of(|task| task.name == task_name)? {
             Some(_) => Err(TaskError::TaskAlreadyExists(task_name)),
             None => {
-                self.stop_current_task(TaskEnd::Time(now))?;
+                self.stop_current_task_with_time(now)?;
                 let task = self.do_start_new_task(task_name, now);
                 Ok(task)
             }
@@ -349,7 +352,7 @@ impl TaskManager {
         match self.tasks.len() {
             0 => Err(TaskError::NoTasksFound),
             len => {
-                self.stop_current_task(TaskEnd::Time(now))?;
+                self.stop_current_task_with_time(now)?;
                 let task = self.do_resume_task(len - 1, now);
                 Ok(task)
             }
@@ -361,7 +364,7 @@ impl TaskManager {
         match self.index_of(|task| task.name.contains(&task_name))? {
             None => Err(TaskError::TaskNotFound(task_name)),
             Some(index) => {
-                self.stop_current_task(TaskEnd::Time(now))?;
+                self.stop_current_task_with_time(now)?;
                 let task = self.do_resume_task(index, now);
                 Ok(task)
             }
