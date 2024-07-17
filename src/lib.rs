@@ -77,6 +77,7 @@ enum Command {
         /// The name of the task to start. If no name is given, the previous task is started.
         #[arg(value_name = "TASK")]
         task: Option<String>,
+        /// Creates the task before starting it. Requires a task name.
         #[arg(short, long, action = ArgAction::SetTrue, requires = "task")]
         create: bool,
     },
@@ -94,6 +95,7 @@ enum Command {
         /// The name of the task to switch to. If no name is given, switch to the previous task.
         #[arg(value_name = "TASK")]
         task: Option<String>,
+        /// Creates the task before switching to it. Requires a task name.
         #[arg(short, long, action = ArgAction::SetTrue, requires = "task")]
         create: bool,
     },
