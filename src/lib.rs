@@ -21,7 +21,7 @@ use std::path::PathBuf;
 use std::str::FromStr;
 
 use chrono::{Days, Duration, Local, NaiveDate, NaiveTime};
-use clap::{Parser, Subcommand, ArgAction};
+use clap::{Parser, Subcommand, ArgAction, builder::ArgPredicate};
 use serde::{Deserialize, Serialize};
 
 pub use crate::task_manager::{TaskManager, TaskError, TaskResult};
@@ -72,9 +72,18 @@ enum Command {
     },
     /// Prints a report of the tasks worked on in a day.
     Report {
-        /// The number of days between today and the day to report.
-        #[arg(short, action = ArgAction::Append, require_equals = true, value_name = "DAYS", default_values = vec!["0"])]
-        n: Vec<u16>
+        /// Whether to report on today.
+        #[arg(short, short_alias = '0', long, action = ArgAction::SetTrue, default_value = "true", default_value_ifs = [
+            ("yesterday", ArgPredicate::IsPresent, Some("false")), 
+            ("dates", ArgPredicate::IsPresent, Some("false"))
+        ])]
+        today: bool,
+        /// Whether to report on yesterday.
+        #[arg(short, short_alias = '1', long, action = ArgAction::SetTrue)]
+        yesterday: bool,
+        /// The dates to report on. In format YYYY-MM-DD.
+        #[arg(long = "dates", action = ArgAction::Append, value_name = "DATE", num_args = 0..)]
+        dates: Vec<NaiveDate>
     },
     /// Prints the current task.
     Current,
@@ -170,7 +179,7 @@ pub fn handle(cli: Cli) -> TaskResult<()> {
                 None => switch_previous(&config),
             } 
         },
-        Command::Report { n } => report(n, &config),
+        Command::Report { today, yesterday, dates } => report(today, yesterday, dates, &config),
         Command::Current => current(&config),
         Command::Rename { task, new_name } => rename(task, new_name, &config),
         Command::List { n } => list(n, &config),
@@ -279,9 +288,16 @@ fn rename(task_name: String, new_name: String, config: &Config) -> TaskResult<()
 }
 
 /// Prints a report of the tasks worked on. The report is generated for the given number of days ago.
-fn report(days_ago: Vec<u16>, config: &Config) -> TaskResult<()> {
-    for days_ago in days_ago {
-        let date = date(days_ago, config)?;
+fn report(today: bool, yesterday: bool, mut dates: Vec<NaiveDate>, config: &Config) -> TaskResult<()> {
+    if yesterday {
+        dates.push(date(1, config)?);
+    }
+    if today {
+        dates.push(date(0, config)?);
+    }
+    dates.sort();
+    dates.dedup();
+    for date in dates {
         let task_manager = read_tasks(date, config)?;
         let report = task_manager.generate_report(date, Local::now());
         println!("\n{report}");
