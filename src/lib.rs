@@ -17,6 +17,7 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 use std::{env, fs};
+use std::ops::RangeInclusive;
 use std::path::PathBuf;
 use std::str::FromStr;
 
@@ -75,15 +76,23 @@ enum Command {
         /// Whether to report on today.
         #[arg(short, short_alias = '0', long, action = ArgAction::SetTrue, default_value = "true", default_value_ifs = [
             ("yesterday", ArgPredicate::IsPresent, Some("false")), 
-            ("dates", ArgPredicate::IsPresent, Some("false"))
-        ])]
+            ("dates", ArgPredicate::IsPresent, Some("false")),
+            ("from", ArgPredicate::IsPresent, Some("false")),
+            ("to", ArgPredicate::IsPresent, Some("false")),
+        ], conflicts_with_all = ["from", "to"])]
         today: bool,
         /// Whether to report on yesterday.
-        #[arg(short, short_alias = '1', long, action = ArgAction::SetTrue)]
+        #[arg(short, short_alias = '1', long, action = ArgAction::SetTrue, conflicts_with_all = ["from", "to"])]
         yesterday: bool,
         /// The dates to report on. In format YYYY-MM-DD.
-        #[arg(long = "dates", action = ArgAction::Append, value_name = "DATE", num_args = 0..)]
-        dates: Vec<NaiveDate>
+        #[arg(long, action = ArgAction::Append, value_name = "DATE", num_args = 0.., conflicts_with_all = ["from", "to"])]
+        dates: Vec<NaiveDate>,
+        /// The date to start the report from (inclusive). In format YYYY-MM-DD.
+        #[arg(long, value_name = "DATE", require_equals = true, conflicts_with_all = ["today", "yesterday", "dates"])]
+        from: Option<NaiveDate>,
+        /// The date to end the report on (inclusive). In format YYYY-MM-DD.
+        #[arg(long, value_name = "DATE", requires = "from", require_equals = true, conflicts_with_all = ["today", "yesterday", "dates"])]
+        to: Option<NaiveDate>,
     },
     /// Prints the current task.
     Current,
@@ -179,7 +188,7 @@ pub fn handle(cli: Cli) -> TaskResult<()> {
                 None => switch_previous(&config),
             } 
         },
-        Command::Report { today, yesterday, dates } => report(today, yesterday, dates, &config),
+        Command::Report { today, yesterday, dates, from, to } => report(today, yesterday, dates, from, to, &config),
         Command::Current => current(&config),
         Command::Rename { task, new_name } => rename(task, new_name, &config),
         Command::List { n } => list(n, &config),
@@ -288,21 +297,59 @@ fn rename(task_name: String, new_name: String, config: &Config) -> TaskResult<()
 }
 
 /// Prints a report of the tasks worked on. The report is generated for the given number of days ago.
-fn report(today: bool, yesterday: bool, mut dates: Vec<NaiveDate>, config: &Config) -> TaskResult<()> {
-    if yesterday {
-        dates.push(date(1, config)?);
+fn report(today: bool, yesterday: bool, mut dates: Vec<NaiveDate>, from: Option<NaiveDate>, to: Option<NaiveDate>, config: &Config) -> TaskResult<()> {
+    if let Some(from) = from {
+        let to = to.unwrap_or(date(0, config)?);
+        dates = NaiveDateIter::new(from, to).collect();
+    } else {
+        if yesterday {
+            dates.push(date(1, config)?);
+        }
+        if today {
+            dates.push(date(0, config)?);
+        }
+        dates.sort();
+        dates.dedup();
     }
-    if today {
-        dates.push(date(0, config)?);
-    }
-    dates.sort();
-    dates.dedup();
+    println!();
     for date in dates {
         let task_manager = read_tasks(date, config)?;
         let report = task_manager.generate_report(date, Local::now());
-        println!("\n{report}");
+        println!("{report}");
     }
     Ok(())
+}
+
+/// An iterator that yields dates in an inclusive range.
+struct NaiveDateIter {
+    range: RangeInclusive<NaiveDate>,
+    current: Option<NaiveDate>,
+}
+impl NaiveDateIter {
+    /// Creates a new iterator.
+    fn new(from: NaiveDate, to: NaiveDate) -> Self {
+        Self {
+            range: from..=to,
+            current: Some(from),
+        }
+    }
+}
+
+impl Iterator for NaiveDateIter {
+    type Item = NaiveDate;
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.current {
+            None => None,
+            Some(current) => {
+                if current <= *self.range.end() {
+                    self.current = current.succ_opt();
+                    Some(current)
+                } else {
+                    None
+                }
+            }
+        }
+    }
 }
 
 /// Reads the tasks from the file for the given date.
