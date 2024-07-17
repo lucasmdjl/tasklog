@@ -74,15 +74,11 @@ enum Command {
     /// Starts work on a given task.
     #[command()]
     Start {
-        /// The name of the task to start.
+        /// The name of the task to start. If no name is given, the previous task is started.
         #[arg(value_name = "TASK")]
-        task: String
-    },
-    /// Resumes work on the given task. If no task is given, resumes the last task.
-    Resume {
-        /// The name of the task to resume.
-        #[arg(value_name = "TASK")]
-        task: Option<String>
+        task: Option<String>,
+        #[arg(short, long, action = ArgAction::SetTrue, requires = "task")]
+        create: bool,
     },
     /// Stops work on the current task.
     Stop {
@@ -95,7 +91,7 @@ enum Command {
     },
     /// Switches to a different task.
     Switch {
-        /// The name of the task to switch to.
+        /// The name of the task to switch to. If no name is given, switch to the previous task.
         #[arg(value_name = "TASK")]
         task: Option<String>,
         #[arg(short, long, action = ArgAction::SetTrue, requires = "task")]
@@ -184,11 +180,14 @@ pub fn handle(cli: Cli) -> Result<()> {
     let config = Config::load(config)?;
     fs::create_dir_all(PathBuf::from(&config.data_dir))?;
     match cli.command {
-        Command::Start { task } => start_new(task, &config),
-        Command::Resume { task } => match task {
-            None => resume_last(&config),
-            Some(task) => resume(task, &config),
-        }
+        Command::Start { task, create } => if create {
+            start_new(task.expect("task should exist when create flag is set"), &config)
+        } else {
+            match task {
+                Some(task) => resume(task, &config),
+                None => resume_last(&config),
+            }
+        },
         Command::Stop { n, duration } => stop(n.unwrap_or(0), duration, &config),
         Command::Switch { task, create } => if create { 
             switch_new(task.expect("task should exist when create flag is set"), &config) 
