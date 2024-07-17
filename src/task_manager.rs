@@ -24,7 +24,35 @@ use chrono::{DateTime, Duration, Local, NaiveDate};
 use colored::Colorize;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde::de;
-use crate::TaskError;
+use thiserror::Error;
+
+/// Errors that can occur while managing tasks.
+#[derive(Error, Debug)]
+pub enum TaskError {
+    #[error("Task '{0}' is already running")]
+    TaskAlreadyRunning(String),
+    #[error("No task is currently running")]
+    TaskNotRunning,
+    #[error("No tasks found")]
+    NoTasksFound,
+    #[error("Task '{0}' not found")]
+    TaskNotFound(String),
+    #[error("Task '{0}' already exists")]
+    TaskAlreadyExists(String),
+    #[error("Task name is ambiguous")]
+    MultipleTasksFound,
+    #[error("Invalid stop time. Must not be in the future")]
+    InvalidStopTime,
+    #[error("File IO error: {0}")]
+    FileIO(#[from] std::io::Error),
+    #[error("Serialization error: {0}")]
+    Serialization(#[from] serde_json::Error),
+    #[error("Configuration error: {0}")]
+    ConfigError(#[from] config::ConfigError),
+}
+
+/// Result type for task operations.
+pub type TaskResult<T> = Result<T, TaskError>;
 
 /// Task structure representing a running task.
 ///
@@ -32,7 +60,7 @@ use crate::TaskError;
 /// - segments must be in chronological order.
 /// - current must be after the end of the last of segments.
 #[derive(Debug, Serialize, PartialEq, Clone)]
-pub struct RunningTask {
+struct RunningTask {
     name: String,
     segments: Vec<Segment>,
     current: DateTime<Local>,
@@ -48,7 +76,7 @@ impl RunningTask {
     }
     
     /// Stops the task.
-    pub fn stop(self, end: DateTime<Local>) -> StoppedTask {
+    fn stop(self, end: DateTime<Local>) -> StoppedTask {
         let start = self.current;
         StoppedTask {
             name: self.name,
@@ -58,7 +86,7 @@ impl RunningTask {
     }
     
     /// Calculates the total time spent on the task.
-    pub fn time_spent(&self, now: DateTime<Local>) -> Duration {
+    fn time_spent(&self, now: DateTime<Local>) -> Duration {
         self.segments.iter().fold(Duration::zero(), |total, segment| total + segment.duration()) +
                     (now - self.current)
     }
@@ -108,14 +136,14 @@ impl TryFrom<RunningTaskDeser> for RunningTask {
 /// - segments must be in chronological order.
 /// - last_segment must start after the end of the last of segments.
 #[derive(Debug, Serialize, PartialEq, Clone)]
-pub struct StoppedTask {
+struct StoppedTask {
     name: String,
     segments: Vec<Segment>,
     last_segment: Segment,
 }
 impl StoppedTask {
     /// Starts the task. Panics if now is before the end of the last segment.
-    pub fn start(self, now: DateTime<Local>) -> RunningTask {
+    fn start(self, now: DateTime<Local>) -> RunningTask {
         let end = self.last_segment.end;
         assert!(now >= end);
         let mut segments = self.segments;
@@ -128,12 +156,12 @@ impl StoppedTask {
     }
 
     /// Returns the last stop time of the task.
-    pub fn stop_time(&self) -> DateTime<Local> {
+    fn stop_time(&self) -> DateTime<Local> {
         self.last_segment.end
     }
 
     /// Calculates the total time spent on the task.
-    pub fn time_spent(&self) -> Duration {
+    fn time_spent(&self) -> Duration {
         self.segments.iter().fold(self.last_segment.duration(), |total, segment| total + segment.duration())
     }
 }
@@ -181,20 +209,20 @@ impl TryFrom<StoppedTaskDeser> for StoppedTask {
 /// ### Contract:
 /// - The start and end times are stored in chronological order.
 #[derive(Debug, Serialize, PartialEq, Clone)]
-pub struct Segment {
+struct Segment {
     start: DateTime<Local>,
     end: DateTime<Local>,
 }
 impl Segment {
     
     /// Creates a new segment with the given start and end times.
-    pub fn new(start: DateTime<Local>, end: DateTime<Local>) -> Self {
+    fn new(start: DateTime<Local>, end: DateTime<Local>) -> Self {
         assert!(start <= end);
         Segment { start, end }
     }
     
     /// Calculates the duration of the time segment.
-    pub fn duration(&self) -> Duration {
+    fn duration(&self) -> Duration {
         self.end - self.start
     }
 }
@@ -243,7 +271,7 @@ impl TaskManager {
     }
     
     /// Checks if there is a current task. Returns [Err] if there is one.
-    fn check_no_current_task(&self) -> crate::Result<()> {
+    fn check_no_current_task(&self) -> TaskResult<()> {
         match self.current_task() {
             None => Ok(()),
             Some(task_name) => Err(TaskError::TaskAlreadyRunning(task_name.to_string()))
@@ -251,7 +279,7 @@ impl TaskManager {
     }
     
     /// Returns the index of the task matching the given predicate if any. If there are multiple, returns [Err].
-    fn index_of(&self, f: impl Fn(&StoppedTask) -> bool) -> crate::Result<Option<usize>> {
+    fn index_of(&self, f: impl Fn(&StoppedTask) -> bool) -> TaskResult<Option<usize>> {
         let mut indices: Vec<_> = self.tasks.iter().enumerate().filter(|(_, task)| f(task)).map(|(i, _)| i).collect();
         let index = indices.pop();
         if !indices.is_empty() {
@@ -262,7 +290,7 @@ impl TaskManager {
     }
     
     /// Starts a new task with the given name.
-    pub fn start_new_task(&mut self, task_name: String, start: DateTime<Local>) -> crate::Result<String> {
+    pub fn start_new_task(&mut self, task_name: String, start: DateTime<Local>) -> TaskResult<String> {
         self.check_no_current_task()?;
         match self.index_of(|task| task.name == task_name)? {
             None => Ok(self.do_start_new_task(task_name, start)),
@@ -278,7 +306,7 @@ impl TaskManager {
     }
 
     /// Stops the current task.
-    pub fn stop_current_task_with_time(&mut self, end: DateTime<Local>) -> crate::Result<String> {
+    pub fn stop_current_task_with_time(&mut self, end: DateTime<Local>) -> TaskResult<String> {
         match self.current.take() {
             None => Err(TaskError::TaskNotRunning),
             Some(task) => {
@@ -290,7 +318,7 @@ impl TaskManager {
     }
 
     /// Stops the current task.
-    pub fn stop_current_task_with_duration(&mut self, duration: Duration, now: DateTime<Local>) -> crate::Result<String> {
+    pub fn stop_current_task_with_duration(&mut self, duration: Duration, now: DateTime<Local>) -> TaskResult<String> {
         match &self.current {
             None => Err(TaskError::TaskNotRunning),
             Some(task) => {
@@ -305,7 +333,7 @@ impl TaskManager {
     }
 
     /// Resumes the last task.
-    pub fn resume_last_task(&mut self, start: DateTime<Local>) -> crate::Result<String> {
+    pub fn resume_last_task(&mut self, start: DateTime<Local>) -> TaskResult<String> {
         self.check_no_current_task()?;
         let task = self.tasks.pop();
         match task {
@@ -319,7 +347,7 @@ impl TaskManager {
     }
 
     /// Resumes an existing task with the given name.
-    pub fn resume_task(&mut self, task_name: String, start: DateTime<Local>) -> crate::Result<String> {
+    pub fn resume_task(&mut self, task_name: String, start: DateTime<Local>) -> TaskResult<String> {
         self.check_no_current_task()?;
         match self.index_of(|task| task.name.contains(&task_name))? {
             None => Err(TaskError::TaskNotFound(task_name)),
@@ -336,7 +364,7 @@ impl TaskManager {
     }
 
     /// Stops the current task and starts a new one.
-    pub fn switch_new_task(&mut self, task_name: String, now: DateTime<Local>) -> crate::Result<String> {
+    pub fn switch_new_task(&mut self, task_name: String, now: DateTime<Local>) -> TaskResult<String> {
         match self.index_of(|task| task.name == task_name)? {
             Some(_) => Err(TaskError::TaskAlreadyExists(task_name)),
             None => {
@@ -348,7 +376,7 @@ impl TaskManager {
     }
 
     /// Stops the current task and starts a new one.
-    pub fn switch_last_task(&mut self, now: DateTime<Local>) -> crate::Result<String> {
+    pub fn switch_last_task(&mut self, now: DateTime<Local>) -> TaskResult<String> {
         match self.tasks.len() {
             0 => Err(TaskError::NoTasksFound),
             len => {
@@ -360,7 +388,7 @@ impl TaskManager {
     }
 
     /// Stops the current task and resumes the given one.
-    pub fn switch_task(&mut self, task_name: String, now: DateTime<Local>) -> crate::Result<String> {
+    pub fn switch_task(&mut self, task_name: String, now: DateTime<Local>) -> TaskResult<String> {
         match self.index_of(|task| task.name.contains(&task_name))? {
             None => Err(TaskError::TaskNotFound(task_name)),
             Some(index) => {
@@ -372,7 +400,7 @@ impl TaskManager {
     }
 
     /// Deletes the given task.
-    pub fn delete_task(&mut self, task_name: String) -> crate::Result<String> {
+    pub fn delete_task(&mut self, task_name: String) -> TaskResult<String> {
         let index = self.index_of(|task| task.name.contains(&task_name))?;
         let current_task = self.current.as_ref().filter(|task| task.name.contains(&task_name));
         match (index, current_task) {
@@ -390,7 +418,7 @@ impl TaskManager {
     }
 
     /// Renames the given task.
-    pub fn rename_task(&mut self, task_name: String, new_name: String) -> crate::Result<(String, String)> {
+    pub fn rename_task(&mut self, task_name: String, new_name: String) -> TaskResult<(String, String)> {
         let mut tasks: Vec<_> = self.tasks.iter_mut().filter(|task| task.name.contains(&task_name)).collect();
         let task = tasks.pop();
         if !tasks.is_empty() {

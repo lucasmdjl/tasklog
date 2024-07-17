@@ -23,40 +23,11 @@ use std::str::FromStr;
 use chrono::{Days, Duration, Local, NaiveDate, NaiveTime};
 use clap::{Parser, Subcommand, ArgAction};
 use serde::{Deserialize, Serialize};
-use thiserror::Error;
 
-use crate::task_manager::TaskManager;
+pub use crate::task_manager::{TaskManager, TaskError, TaskResult};
 
 pub mod task_manager;
 
-/// Errors that can occur while managing tasks.
-#[derive(Error, Debug)]
-pub enum TaskError {
-    #[error("Task '{0}' is already running")]
-    TaskAlreadyRunning(String),
-    #[error("No task is currently running")]
-    TaskNotRunning,
-    #[error("No tasks found")]
-    NoTasksFound,
-    #[error("Task '{0}' not found")]
-    TaskNotFound(String),
-    #[error("Task '{0}' already exists")]
-    TaskAlreadyExists(String),
-    #[error("Task name is ambiguous")]
-    MultipleTasksFound,
-    #[error("Invalid stop time. Must not be in the future")]
-    InvalidStopTime,
-    #[error("File IO error: {0}")]
-    FileIO(#[from] std::io::Error),
-    #[error("Serialization error: {0}")]
-    Serialization(#[from] serde_json::Error),
-    #[error("Configuration error: {0}")]
-    ConfigError(#[from] config::ConfigError),
-}
-
-
-/// Result type for task operations.
-pub type Result<T> = std::result::Result<T, TaskError>;
 
 /// Command-line interface structure.
 #[derive(Debug, Parser)]
@@ -148,7 +119,7 @@ impl Default for Config {
 }
 impl Config {
     /// Loads the configuration from the given file.
-    fn load(config_file: PathBuf) -> Result<Self> {
+    fn load(config_file: PathBuf) -> TaskResult<Self> {
         Self::create_config_file_if_needed(&config_file)?;
         let settings = config::Config::builder().add_source(
             config::File::from(config_file)
@@ -160,7 +131,7 @@ impl Config {
 
 
     /// Creates the config file if it doesn't exist.
-    fn create_config_file_if_needed(config_file: &PathBuf) -> Result<()> {
+    fn create_config_file_if_needed(config_file: &PathBuf) -> TaskResult<()> {
         if !config_file.exists() {
             if let Some(parent) = config_file.parent() {
                 fs::create_dir_all(parent)?;
@@ -173,7 +144,7 @@ impl Config {
 }
 
 /// Handles the command-line arguments and executes the corresponding command.
-pub fn handle(cli: Cli) -> Result<()> {
+pub fn handle(cli: Cli) -> TaskResult<()> {
     let config = cli.config.unwrap_or_else(|| 
     env::var("TASKLOG_CONFIG").map(PathBuf::from).unwrap_or_else(|_| 
     dirs::config_local_dir().expect("config_local_dir should exist")
@@ -208,7 +179,7 @@ pub fn handle(cli: Cli) -> Result<()> {
 }
 
 /// Processes a mutating action on the tasks.
-fn process_mutating_action<T>(days_ago: u16, config: &Config, action: impl FnOnce(&mut TaskManager) -> Result<T>) -> Result<T> {
+fn process_mutating_action<T>(days_ago: u16, config: &Config, action: impl FnOnce(&mut TaskManager) -> TaskResult<T>) -> TaskResult<T> {
     let today = date(days_ago, config)?;
     let mut tasks = read_tasks(today, config)?;
     let task_name = action(&mut tasks)?;
@@ -217,7 +188,7 @@ fn process_mutating_action<T>(days_ago: u16, config: &Config, action: impl FnOnc
 }
 
 /// Resumes the task with the given name.
-fn resume(task_name: String, config: &Config) -> Result<()> {
+fn resume(task_name: String, config: &Config) -> TaskResult<()> {
     let task_name = process_mutating_action(0, config, |task_manager| 
     task_manager.resume_task(task_name, Local::now()))?;
     println!("Resumed task: {task_name}");
@@ -225,7 +196,7 @@ fn resume(task_name: String, config: &Config) -> Result<()> {
 }
 
 /// Starts a new task with the given name.
-fn start_new(task_name: String, config: &Config) -> Result<()> {
+fn start_new(task_name: String, config: &Config) -> TaskResult<()> {
     let task_name = process_mutating_action(0, config, |task_manager| 
     task_manager.start_new_task(task_name, Local::now()))?;
     println!("Started new task: {task_name}");
@@ -233,7 +204,7 @@ fn start_new(task_name: String, config: &Config) -> Result<()> {
 }
 
 /// Stops the currently running task.
-fn stop(days_ago: u16, duration: Option<u16>, config: &Config) -> Result<()> {
+fn stop(days_ago: u16, duration: Option<u16>, config: &Config) -> TaskResult<()> {
     let task_name = process_mutating_action(days_ago, config, |task_manager| 
         match duration {
             None => task_manager.stop_current_task_with_time(Local::now()),
@@ -245,7 +216,7 @@ fn stop(days_ago: u16, duration: Option<u16>, config: &Config) -> Result<()> {
 }
 
 /// Resumes the last running task.
-fn resume_last(config: &Config) -> Result<()> {
+fn resume_last(config: &Config) -> TaskResult<()> {
     let task_name = process_mutating_action(0, config, |task_manager| 
     task_manager.resume_last_task(Local::now()))?;
     println!("Resumed task: {task_name}");
@@ -253,28 +224,28 @@ fn resume_last(config: &Config) -> Result<()> {
 }
 
 /// Switches to the given task.
-fn switch(task_name: String, config: &Config) -> Result<()> {
+fn switch(task_name: String, config: &Config) -> TaskResult<()> {
     let task_name = process_mutating_action(0, config, |task_manager| task_manager.switch_task(task_name, Local::now()))?;
     println!("Switched to task: {task_name}");
     Ok(())
 }
 
 /// Switches to a new task.
-fn switch_new(task_name: String, config: &Config) -> Result<()> {
+fn switch_new(task_name: String, config: &Config) -> TaskResult<()> {
     let task_name = process_mutating_action(0, config, |task_manager| task_manager.switch_new_task(task_name, Local::now()))?;
     println!("Switched to new task: {task_name}");
     Ok(())
 }
 
 /// Switches to the previous task.
-fn switch_previous(config: &Config) -> Result<()> {
+fn switch_previous(config: &Config) -> TaskResult<()> {
     let task_name = process_mutating_action(0, config, |task_manager| task_manager.switch_last_task(Local::now()))?;
     println!("Switched to task: {task_name}");
     Ok(())
 }
 
 /// Prints the name of the currently running task.
-fn current(config: &Config) -> Result<()> {
+fn current(config: &Config) -> TaskResult<()> {
     let today = date(0, config)?;
     let task_manager = read_tasks(today, config)?;
     match task_manager.current_task() {
@@ -285,7 +256,7 @@ fn current(config: &Config) -> Result<()> {
 }
 
 /// Lists all tasks.
-fn list(days_ago: u16,config: &Config) -> Result<()> {
+fn list(days_ago: u16,config: &Config) -> TaskResult<()> {
     let today = date(days_ago, config)?;
     let task_manager = read_tasks(today, config)?;
     let tasks = task_manager.list_tasks();
@@ -294,21 +265,21 @@ fn list(days_ago: u16,config: &Config) -> Result<()> {
 }
 
 /// Deletes the given task.
-fn delete(task_name: String, config: &Config) -> Result<()> {
+fn delete(task_name: String, config: &Config) -> TaskResult<()> {
     let task_name = process_mutating_action(0, config, |task_manager| task_manager.delete_task(task_name))?;
     println!("Deleted task: {task_name}");
     Ok(())
 }
 
 /// Renames the given task.
-fn rename(task_name: String, new_name: String, config: &Config) -> Result<()> {
+fn rename(task_name: String, new_name: String, config: &Config) -> TaskResult<()> {
     let (task_name, new_name) = process_mutating_action(0, config, |task_manager| task_manager.rename_task(task_name, new_name))?;
     println!("Renamed task: {task_name} to {new_name}");
     Ok(())
 }
 
 /// Prints a report of the tasks worked on. The report is generated for the given number of days ago.
-fn report(days_ago: Vec<u16>, config: &Config) -> Result<()> {
+fn report(days_ago: Vec<u16>, config: &Config) -> TaskResult<()> {
     for days_ago in days_ago {
         let date = date(days_ago, config)?;
         let task_manager = read_tasks(date, config)?;
@@ -319,7 +290,7 @@ fn report(days_ago: Vec<u16>, config: &Config) -> Result<()> {
 }
 
 /// Reads the tasks from the file for the given date.
-fn read_tasks(today: NaiveDate, config: &Config) -> Result<TaskManager> {
+fn read_tasks(today: NaiveDate, config: &Config) -> TaskResult<TaskManager> {
     let file = get_file(today, config)?;
     let task_manager = match fs::read_to_string(file) {
         Ok(data) => serde_json::from_str(&data)?,
@@ -329,7 +300,7 @@ fn read_tasks(today: NaiveDate, config: &Config) -> Result<TaskManager> {
 }
 
 /// Writes the tasks to the file for the given date.
-fn write_tasks(tasks: &TaskManager, today: NaiveDate, config: &Config) -> Result<()> {
+fn write_tasks(tasks: &TaskManager, today: NaiveDate, config: &Config) -> TaskResult<()> {
     let file = get_file(today, config)?;
     let data = serde_json::to_string(&tasks).expect("should be able to serialize tasks");
     fs::write(file, data)?;
@@ -337,14 +308,14 @@ fn write_tasks(tasks: &TaskManager, today: NaiveDate, config: &Config) -> Result
 }
 
 /// Gets the file path for the given date.
-fn get_file(today: NaiveDate, config: &Config) -> Result<PathBuf> {
+fn get_file(today: NaiveDate, config: &Config) -> TaskResult<PathBuf> {
     let today = today.format("%F.json").to_string();
     let file = PathBuf::from(&config.data_dir).join(today);
     Ok(file)
 }
 
 /// Returns today's date, or yesterday if it's before configured day start.
-fn date(days_ago: u16, config: &Config) -> Result<NaiveDate> {
+fn date(days_ago: u16, config: &Config) -> TaskResult<NaiveDate> {
     let now = Local::now();
     let time = now.time();
     let day_start = NaiveTime::from_str(&config.day_start)
