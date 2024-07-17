@@ -56,8 +56,8 @@ enum Command {
     /// Stops work on the current task.
     Stop {
         /// The number of days between today and the day for which to stop the running task.
-        #[arg(short, require_equals = true, value_name = "DAYS", requires = "duration")]
-        n: Option<u16>,
+        #[arg(long, require_equals = true, value_name = "DATE", requires = "duration")]
+        date: Option<NaiveDate>,
         /// The task duration in minutes.
         #[arg(short, long, require_equals = true, value_name = "MINUTES")]
         duration: Option<u16>
@@ -179,7 +179,7 @@ pub fn handle(cli: Cli) -> TaskResult<()> {
                 None => resume_last(&config),
             }
         },
-        Command::Stop { n, duration } => stop(n.unwrap_or(0), duration, &config),
+        Command::Stop { date, duration } => stop(date, duration, &config),
         Command::Switch { task, create } => if create { 
             switch_new(task.expect("task should exist when create flag is set"), &config) 
         } else { 
@@ -197,17 +197,17 @@ pub fn handle(cli: Cli) -> TaskResult<()> {
 }
 
 /// Processes a mutating action on the tasks.
-fn process_mutating_action<T>(days_ago: u16, config: &Config, action: impl FnOnce(&mut TaskManager) -> TaskResult<T>) -> TaskResult<T> {
-    let today = date(days_ago, config)?;
-    let mut tasks = read_tasks(today, config)?;
+fn process_mutating_action<T>(date: NaiveDate, config: &Config, action: impl FnOnce(&mut TaskManager) -> TaskResult<T>) -> TaskResult<T> {
+    let mut tasks = read_tasks(date, config)?;
     let task_name = action(&mut tasks)?;
-    write_tasks(&tasks, today, config)?;
+    write_tasks(&tasks, date, config)?;
     Ok(task_name)
 }
 
 /// Resumes the task with the given name.
 fn resume(task_name: String, config: &Config) -> TaskResult<()> {
-    let task_name = process_mutating_action(0, config, |task_manager| 
+    let today = today(config)?;
+    let task_name = process_mutating_action(today, config, |task_manager| 
     task_manager.resume_task(task_name, Local::now()))?;
     println!("Resumed task: {task_name}");
     Ok(())
@@ -215,15 +215,17 @@ fn resume(task_name: String, config: &Config) -> TaskResult<()> {
 
 /// Starts a new task with the given name.
 fn start_new(task_name: String, config: &Config) -> TaskResult<()> {
-    let task_name = process_mutating_action(0, config, |task_manager| 
+    let today = today(config)?;
+    let task_name = process_mutating_action(today, config, |task_manager| 
     task_manager.start_new_task(task_name, Local::now()))?;
     println!("Started new task: {task_name}");
     Ok(())
 }
 
 /// Stops the currently running task.
-fn stop(days_ago: u16, duration: Option<u16>, config: &Config) -> TaskResult<()> {
-    let task_name = process_mutating_action(days_ago, config, |task_manager| 
+fn stop(date: Option<NaiveDate>, duration: Option<u16>, config: &Config) -> TaskResult<()> {
+    let date = date.unwrap_or(today(config)?);
+    let task_name = process_mutating_action(date, config, |task_manager| 
         match duration {
             None => task_manager.stop_current_task_with_time(Local::now()),
             Some(minutes) => task_manager.stop_current_task_with_duration(Duration::minutes(minutes as i64), Local::now()),
@@ -235,7 +237,8 @@ fn stop(days_ago: u16, duration: Option<u16>, config: &Config) -> TaskResult<()>
 
 /// Resumes the last running task.
 fn resume_last(config: &Config) -> TaskResult<()> {
-    let task_name = process_mutating_action(0, config, |task_manager| 
+    let today = today(config)?;
+    let task_name = process_mutating_action(today, config, |task_manager| 
     task_manager.resume_last_task(Local::now()))?;
     println!("Resumed task: {task_name}");
     Ok(())
@@ -243,21 +246,24 @@ fn resume_last(config: &Config) -> TaskResult<()> {
 
 /// Switches to the given task.
 fn switch(task_name: String, config: &Config) -> TaskResult<()> {
-    let task_name = process_mutating_action(0, config, |task_manager| task_manager.switch_task(task_name, Local::now()))?;
+    let today = today(config)?;
+    let task_name = process_mutating_action(today, config, |task_manager| task_manager.switch_task(task_name, Local::now()))?;
     println!("Switched to task: {task_name}");
     Ok(())
 }
 
 /// Switches to a new task.
 fn switch_new(task_name: String, config: &Config) -> TaskResult<()> {
-    let task_name = process_mutating_action(0, config, |task_manager| task_manager.switch_new_task(task_name, Local::now()))?;
+    let today = today(config)?;
+    let task_name = process_mutating_action(today, config, |task_manager| task_manager.switch_new_task(task_name, Local::now()))?;
     println!("Switched to new task: {task_name}");
     Ok(())
 }
 
 /// Switches to the previous task.
 fn switch_previous(config: &Config) -> TaskResult<()> {
-    let task_name = process_mutating_action(0, config, |task_manager| task_manager.switch_last_task(Local::now()))?;
+    let today = today(config)?;
+    let task_name = process_mutating_action(today, config, |task_manager| task_manager.switch_last_task(Local::now()))?;
     println!("Switched to task: {task_name}");
     Ok(())
 }
@@ -284,14 +290,16 @@ fn list(days_ago: u16,config: &Config) -> TaskResult<()> {
 
 /// Deletes the given task.
 fn delete(task_name: String, config: &Config) -> TaskResult<()> {
-    let task_name = process_mutating_action(0, config, |task_manager| task_manager.delete_task(task_name))?;
+    let today = today(config)?;
+    let task_name = process_mutating_action(today, config, |task_manager| task_manager.delete_task(task_name))?;
     println!("Deleted task: {task_name}");
     Ok(())
 }
 
 /// Renames the given task.
 fn rename(task_name: String, new_name: String, config: &Config) -> TaskResult<()> {
-    let (task_name, new_name) = process_mutating_action(0, config, |task_manager| task_manager.rename_task(task_name, new_name))?;
+    let today = today(config)?;
+    let (task_name, new_name) = process_mutating_action(today, config, |task_manager| task_manager.rename_task(task_name, new_name))?;
     println!("Renamed task: {task_name} to {new_name}");
     Ok(())
 }
@@ -377,7 +385,12 @@ fn get_file(today: NaiveDate, config: &Config) -> TaskResult<PathBuf> {
     Ok(file)
 }
 
-/// Returns today's date, or yesterday if it's before configured day start.
+/// Returns today's date.
+fn today(config: &Config) -> TaskResult<NaiveDate> {
+    date(0, config)
+}
+
+/// Returns the date `days_ago` days ago.
 fn date(days_ago: u16, config: &Config) -> TaskResult<NaiveDate> {
     let now = Local::now();
     let time = now.time();
