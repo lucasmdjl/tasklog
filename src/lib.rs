@@ -207,7 +207,7 @@ fn process_mutating_action<T>(date: NaiveDate, config: &Config, action: impl FnO
 /// Resumes the task with the given name.
 fn resume(task_name: String, config: &Config) -> TaskResult<()> {
     let today = today(config)?;
-    let task_name = process_mutating_action(today, config, |task_manager| 
+    let task_name = process_mutating_action(today, config, |task_manager|
     task_manager.resume_task(task_name, Local::now()))?;
     println!("Resumed task: {task_name}");
     Ok(())
@@ -216,7 +216,7 @@ fn resume(task_name: String, config: &Config) -> TaskResult<()> {
 /// Starts a new task with the given name.
 fn start_new(task_name: String, config: &Config) -> TaskResult<()> {
     let today = today(config)?;
-    let task_name = process_mutating_action(today, config, |task_manager| 
+    let task_name = process_mutating_action(today, config, |task_manager|
     task_manager.start_new_task(task_name, Local::now()))?;
     println!("Started new task: {task_name}");
     Ok(())
@@ -225,7 +225,7 @@ fn start_new(task_name: String, config: &Config) -> TaskResult<()> {
 /// Stops the currently running task.
 fn stop(date: Option<NaiveDate>, duration: Option<u16>, config: &Config) -> TaskResult<()> {
     let date = date.unwrap_or(today(config)?);
-    let task_name = process_mutating_action(date, config, |task_manager| 
+    let task_name = process_mutating_action(date, config, |task_manager|
         match duration {
             None => task_manager.stop_current_task_with_time(Local::now()),
             Some(minutes) => task_manager.stop_current_task_with_duration(Duration::minutes(minutes as i64), Local::now()),
@@ -238,7 +238,7 @@ fn stop(date: Option<NaiveDate>, duration: Option<u16>, config: &Config) -> Task
 /// Resumes the last running task.
 fn resume_last(config: &Config) -> TaskResult<()> {
     let today = today(config)?;
-    let task_name = process_mutating_action(today, config, |task_manager| 
+    let task_name = process_mutating_action(today, config, |task_manager|
     task_manager.resume_last_task(Local::now()))?;
     println!("Resumed task: {task_name}");
     Ok(())
@@ -319,10 +319,11 @@ fn report(today: bool, yesterday: bool, mut dates: Vec<NaiveDate>, from: Option<
         dates.sort();
         dates.dedup();
     }
+    let now = Local::now();
     println!();
     for date in dates {
         let task_manager = read_tasks(date, config)?;
-        let report = task_manager.generate_report(date, Local::now());
+        let report = task_manager.generate_report(date, now);
         println!("{report}");
     }
     Ok(())
