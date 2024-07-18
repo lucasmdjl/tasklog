@@ -227,8 +227,8 @@ fn stop(date: Option<NaiveDate>, duration: Option<u16>, config: &Config) -> Task
     let date = date.unwrap_or(today(config)?);
     let task_name = process_mutating_action(date, config, |task_manager|
         match duration {
-            None => task_manager.stop_current_task_with_time(Local::now()),
-            Some(minutes) => task_manager.stop_current_task_with_duration(Duration::minutes(minutes as i64), Local::now()),
+            None => task_manager.stop_running_task_with_time(Local::now()),
+            Some(minutes) => task_manager.stop_running_task_with_duration(Duration::minutes(minutes as i64), Local::now()),
         }
     )?;
     println!("Stopped task: {task_name}");
@@ -272,7 +272,7 @@ fn switch_previous(config: &Config) -> TaskResult<()> {
 fn current(config: &Config) -> TaskResult<()> {
     let today = date(0, config)?;
     let task_manager = read_tasks(today, config)?;
-    match task_manager.current_task() {
+    match task_manager.running_task() {
         None => println!("No task currently running"),
         Some(task) => println!("Current task: {}", task),
     }
